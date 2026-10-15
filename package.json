@@ -1,0 +1,36 @@
+{
+  "name": "foc-viewer",
+  "version": "0.1.0",
+  "description": "Single-file browser viewer for password-encrypted filecoin-pin shares",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@10.7.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/check-dist.mjs",
+    "dev:share": "node scripts/dev-share.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ipld/car": "5.4.7",
+    "client-zip": "2.5.1",
+    "filecoin-encryption-envelope": "0.1.0",
+    "ipfs-unixfs-exporter": "16.2.3",
+    "magic-bytes.js": "^1.13.0",
+    "multiformats": "14.0.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "happy-dom": "20.0.11",
+    "ipfs-unixfs-importer": "17.1.1",
+    "typescript": "^5.9.0",
+    "vite": "^6.0.0",
+    "vite-plugin-singlefile": "^2.3.2",
+    "vitest": "^3.0.0"
+  }
+}
