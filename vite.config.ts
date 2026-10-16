@@ -21,7 +21,7 @@ function devHarness(): Plugin {
             'script-src': "'self'",
             'font-src': "'self'",
             'img-src': "'self'",
-            'connect-src': "'self' ws:",
+            'connect-src': 'ws:',
           }
           const relaxed = Object.entries(extra).reduce(
             (policy, [directive, sources]) => policy.replace(new RegExp(`${directive} `), `${directive} ${sources} `),

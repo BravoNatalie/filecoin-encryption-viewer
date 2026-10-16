@@ -93,3 +93,19 @@ it('shows progress only in the status line while building', async () => {
   await vi.waitFor(() => expect(container.querySelector('#zip-status')?.textContent).toBe('Zip ready.'))
   expect(button.textContent).toContain('Download all')
 })
+
+it('sets tree-card on the folder tree and clears it on file views and other screens', () => {
+  showProtectedArchive(container, entries, async () => {})
+  expect(container.classList.contains('tree-card')).toBe(true)
+
+  renderContent(container, new TextEncoder().encode('hi'), 'text/plain', 'a.txt')
+  expect(container.classList.contains('tree-card')).toBe(false)
+
+  showProtectedArchive(container, entries, async () => {})
+  showSaveEntry(container, entries[1], async () => 'saved')
+  expect(container.classList.contains('tree-card')).toBe(false)
+
+  showProtectedArchive(container, entries, async () => {})
+  showMissingLink(container)
+  expect(container.classList.contains('tree-card')).toBe(false)
+})

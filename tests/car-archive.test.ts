@@ -141,7 +141,7 @@ describe('range reads', () => {
     for (const request of stub.requests) expect(request).toMatchObject({ cache: 'no-store', redirect: 'error' })
   })
 
-  it('sniffing the first 100 bytes of a large file fetches about one leaf', async () => {
+  it('sniffing the first 100 bytes of a large file makes one request of at most one batch', async () => {
     const huge = pattern(10 * MIB, 3)
     const { archive, stub } = await open(await makeShare([{ path: 'huge.bin', content: huge }]))
     const before = stub.requests.length
@@ -151,17 +151,17 @@ describe('range reads', () => {
     expect(value?.slice(0, 100)).toEqual(huge.slice(0, 100))
     const data = stub.requests.slice(before)
     expect(data).toHaveLength(1)
-    // One 1 MiB leaf, widened to whole 256 KiB encryption chunks (the leaf starts mid-chunk)
-    expect(data[0].length).toBeLessThanOrEqual(MIB + 2 * 256 * 1024)
+    // One 8 MiB batch, widened to whole 256 KiB encryption chunks (the first leaf starts mid-chunk)
+    expect(data[0].length).toBeLessThanOrEqual(8 * MIB + 2 * 256 * 1024)
   }, 60_000)
 
-  it('restores a file over 8 MiB with a small first batch and 8 MiB batches after it', async () => {
+  it('restores a file over 8 MiB in batches of at most 8 MiB', async () => {
     const huge = pattern(10 * MIB, 3)
     const { archive, stub } = await open(await makeShare([{ path: 'huge.bin', content: huge }]))
     const before = stub.requests.length
     expect(await readAll(await archive.open('huge.bin'))).toEqual(huge)
     const data = stub.requests.slice(before)
-    expect(data).toHaveLength(1 + Math.ceil((huge.length - MIB) / (8 * MIB)))
+    expect(data).toHaveLength(Math.ceil(huge.length / (8 * MIB)))
   }, 60_000)
 
   it('reads one batch at a time', async () => {

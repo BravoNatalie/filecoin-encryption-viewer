@@ -259,6 +259,7 @@ export function showProtectedArchive(
   onDownloadAll?: (onProgress: (done: number, total: number) => void) => Promise<void>
 ): void {
   setCardLabel('Encrypted share')
+  container.classList.add('tree-card')
   container.innerHTML = `
     <div class="content-wrapper">
       ${treeHeaderMarkup(entries, Boolean(onDownloadAll) && entries.length > 0)}

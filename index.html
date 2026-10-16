@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- connect-src 'self': Firefox checks the gateway's service-worker script against connect-src -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob: data:; font-src data:; connect-src https://*.ipfs.dweb.link; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob: data:; font-src data:; connect-src 'self' https://*.ipfs.dweb.link; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Encrypted share · Filecoin Onchain Cloud</title>
@@ -198,6 +199,11 @@
 
         #app.wide {
           width: min(75rem, calc(100% - 2rem));
+        }
+
+        /* Folder tree: a little wider than the prompt (class set in ui.ts, cleared in card-label.ts) */
+        #app.tree-card {
+          width: min(44rem, calc(100% - 2rem));
         }
       }
 
@@ -560,6 +566,10 @@
           width: min(36rem, calc(100% - 2rem));
         }
 
+        body:has(#app.tree-card) #card-label {
+          width: min(44rem, calc(100% - 2rem));
+        }
+
         .card-label {
           font-size: 0.875rem;
         }
@@ -721,6 +731,8 @@
         margin: 0;
         padding: 1rem;
         overflow-x: auto;
+        overflow-y: auto;
+        max-height: max(24rem, 60vh);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         background: var(--muted);
@@ -755,6 +767,10 @@
       @media (max-width: 639px) {
         .content-wrapper iframe {
           height: max(20rem, 65vh);
+        }
+
+        .content-wrapper pre {
+          max-height: max(20rem, 65vh);
         }
 
         .btn-secondary {

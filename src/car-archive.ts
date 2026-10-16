@@ -20,8 +20,6 @@ const MAX_ARCHIVE_ENTRIES = 10_000
 const FIRST_WINDOW_BYTES = 256 * 1024
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_BATCH_BYTES = 8 * 1024 * 1024
-// The first batch is one leaf, so sniffing a file's type fetches about 1 MiB instead of a full batch
-const FIRST_BATCH_LEAVES = 1
 
 export interface ProtectedEntry {
   readonly path: string
@@ -254,7 +252,7 @@ function createArchive(
 }
 
 // Leaves are contiguous in the CAR unless a repeated chunk points back to its first occurrence, so a file is a few
-// long reads. After the first batch, each spans at most MAX_BATCH_BYTES of CAR (a lone leaf may be larger).
+// long reads. Each batch spans at most MAX_BATCH_BYTES of CAR (a lone leaf may be larger).
 function groupBatches(leaves: FileLeaf[]): FileLeaf[][] {
   const batches: FileLeaf[][] = []
   let batch: FileLeaf[] = []
@@ -263,9 +261,7 @@ function groupBatches(leaves: FileLeaf[]): FileLeaf[][] {
     const last = batch.at(-1)
     if (
       last &&
-      ((batches.length === 0 && batch.length >= FIRST_BATCH_LEAVES) ||
-        item.leaf.offset !== last.leaf.dataOffset + last.len ||
-        end(item) - batch[0].leaf.dataOffset > MAX_BATCH_BYTES)
+      (item.leaf.offset !== last.leaf.dataOffset + last.len || end(item) - batch[0].leaf.dataOffset > MAX_BATCH_BYTES)
     ) {
       batches.push(batch)
       batch = []
