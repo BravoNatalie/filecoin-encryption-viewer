@@ -3,32 +3,43 @@ import { NotAvailableError, RangeUnsupportedError } from './errors.js'
 
 // Covers the envelope header plus the first metadata window, so opening costs one request when the metadata is small
 const HEAD_BYTES = 320 * 1024
+const COSE_ENCRYPT0_TAG_BYTE = 0xd0
 const CONTENT_RANGE = /^bytes (\d+)-(\d+)\/(\d+)$/
 
+// ponytail: never request byte 0: the gateway's service worker sniffs ranges that start at 0 by walking the whole file
+// in the background (js-ipfs-unixfs#501, verified-fetch detectContentType). Every v0/v1 envelope starts with 0xd0
+// (COSE_Encrypt0 tag). Remove when fixed upstream.
 // ponytail: requests are sequential; add bounded read-ahead if previews feel slow
 /**
  * A random-access view of the envelope behind `url`, read with Range requests. `size` comes from the first
  * response's Content-Range, and the head bytes it carried are reused, so the header parse costs no extra request.
  */
 export async function openRangeSource(url: string, fetchFn: typeof fetch): Promise<RandomAccessSource> {
-  const first = await requestRange(url, fetchFn, 0, HEAD_BYTES)
-  const head = await readAll(first.body).catch((error) => {
+  const first = await requestRange(url, fetchFn, 1, HEAD_BYTES - 1)
+  const body = await readAll(first.body).catch((error) => {
     throw new NotAvailableError('The download was interrupted', { cause: error })
   })
-  if (first.start !== 0 || first.end >= HEAD_BYTES || head.length !== first.end + 1) {
+  if (first.start !== 1 || first.end >= HEAD_BYTES || body.length !== first.end) {
     throw new NotAvailableError('The server answered with a different range than requested')
   }
+  // If the guessed byte 0 is wrong, fee.parse fails and the share is reported as not a share
+  const head = new Uint8Array(body.length + 1)
+  head[0] = COSE_ENCRYPT0_TAG_BYTE
+  head.set(body, 1)
   const size = first.total
 
   return {
     size,
     async openRange(offset, length) {
-      if (offset + length <= head.length) return streamOf(head.subarray(offset, offset + length))
-      const response = await requestRange(url, fetchFn, offset, length)
-      if (response.start !== offset || response.end !== offset + length - 1 || response.total !== size) {
+      const end = offset + length
+      if (end <= head.length) return streamOf(head.subarray(offset, end))
+      // Past the head: fetch only from the end of the head on (never from 0) and prepend what the head already holds
+      const start = Math.max(offset, head.length)
+      const response = await requestRange(url, fetchFn, start, end - start)
+      if (response.start !== start || response.end !== end - 1 || response.total !== size) {
         throw new NotAvailableError('The server answered with a different range than requested')
       }
-      return response.body
+      return offset < head.length ? prepend(head.subarray(offset), response.body) : response.body
     },
   }
 }
@@ -53,6 +64,21 @@ async function requestRange(url: string, fetchFn: typeof fetch, offset: number, 
   const range = CONTENT_RANGE.exec(response.headers.get('content-range') ?? '')
   if (!range || !response.body) throw new NotAvailableError('The server sent an invalid range response')
   return { start: Number(range[1]), end: Number(range[2]), total: Number(range[3]), body: response.body }
+}
+
+function prepend(first: Uint8Array, rest: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = rest.getReader()
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(first)
+    },
+    async pull(controller) {
+      const { done, value } = await reader.read()
+      if (done) controller.close()
+      else controller.enqueue(value)
+    },
+    cancel: (reason) => reader.cancel(reason),
+  })
 }
 
 function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {

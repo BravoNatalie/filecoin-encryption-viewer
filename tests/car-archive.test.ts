@@ -118,7 +118,7 @@ describe('range reads', () => {
   it('open fetches only the head', async () => {
     const { stub } = await open(await makeShare(mixed))
     expect(stub.requests).toHaveLength(1)
-    expect(stub.requests[0].offset).toBe(0)
+    expect(stub.requests[0].offset).toBe(1)
     expect(requested(stub)).toBeLessThanOrEqual(320 * 1024)
   })
 
@@ -131,7 +131,8 @@ describe('range reads', () => {
 
     const beforeBig = stub.requests.length
     expect(await readAll(await archive.open('mix/big.bin'))).toEqual(big)
-    expect(requested(stub, beforeBig)).toBeGreaterThanOrEqual(big.length)
+    // the first 320 KiB of the share are already in the cached head
+    expect(requested(stub, beforeBig)).toBeGreaterThanOrEqual(big.length - 320 * 1024)
   })
 
   it('sends every request with no-store and redirect error', async () => {
@@ -163,6 +164,38 @@ describe('range reads', () => {
     const data = stub.requests.slice(before)
     expect(data).toHaveLength(Math.ceil(huge.length / (8 * MIB)))
   }, 60_000)
+
+  it('never requests a range that starts at byte 0, and the head request starts at byte 1', async () => {
+    const stub = serveRange(await makeShare(mixed))
+    const ranges: string[] = []
+    const fetchFn = ((input: RequestInfo, init?: RequestInit) => {
+      ranges.push(new Headers(init?.headers).get('range') ?? '')
+      return stub.fetch(input, init)
+    }) as typeof fetch
+    const archive = await openProtectedArchive(CID_STRING, PASSWORD, fetchFn)
+    expect(await readAll(await archive.open('mix/big.bin'))).toEqual(big)
+    expect(await readAll(await archive.open('mix/small.txt'))).toEqual(bytes('small file'))
+
+    expect(ranges[0]).toBe(`bytes=1-${320 * 1024 - 1}`)
+    expect(ranges.length).toBeGreaterThan(1)
+    expect(stub.requests.every((request) => request.offset > 0)).toBe(true)
+  })
+
+  it('opens a share smaller than the head', async () => {
+    const share = await makeShare([{ path: 'tiny.txt', content: bytes('tiny') }])
+    expect(share.length).toBeLessThan(320 * 1024)
+    const { archive, stub } = await open(share)
+    expect(await readAll(await archive.open('tiny.txt'))).toEqual(bytes('tiny'))
+    expect(stub.requests).toHaveLength(1)
+  })
+
+  it('reports a share whose first bytes are not a COSE_Encrypt0 as not a share', async () => {
+    const share = await makeShare(folder)
+    // The client supplies byte 0 itself (0xd0), so the second byte is what breaks the envelope
+    share[0] = 0x00
+    share[1] = 0x01
+    await expect(open(share)).rejects.toBeInstanceOf(NotAShareError)
+  })
 
   it('reads one batch at a time', async () => {
     const { archive, stub } = await open(await makeShare(bigFolder))
