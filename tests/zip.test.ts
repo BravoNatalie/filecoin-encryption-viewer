@@ -1,7 +1,9 @@
-import { expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { openProtectedArchive } from '../src/car-archive.js'
+import { TooLargeError } from '../src/errors.js'
 import { buildArchiveZip, summarizeArchive, zipFileName } from '../src/zip.js'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
+import { serveRange } from './fixtures/serve-range.js'
 
 const CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
 const text = (value: string) => new TextEncoder().encode(value)
@@ -42,11 +44,7 @@ it('zips an open archive with full entry paths, directories and exact bytes', as
     { path: 'sample/note.txt', content: text('hello zip') },
     { path: 'sample/docs/report.txt', content: text('nested report') },
   ])
-  const archive = await openProtectedArchive(
-    CID,
-    PASSWORD,
-    (async () => new Response(share as BodyInit)) as typeof fetch
-  )
+  const archive = await openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
 
   expect(summarizeArchive(archive)).toEqual({ files: 2, bytes: 9 + 13 })
   expect(zipFileName(archive)).toBe('sample.zip')
@@ -66,3 +64,16 @@ it('zips an open archive with full entry paths, directories and exact bytes', as
   expect(byName.get('sample/')?.length).toBe(0)
   expect(progress).toEqual([1, 2])
 })
+
+it('refuses to zip more than the in-memory cap', async () => {
+  const share = await makeShare([{ path: 'sample/note.txt', content: text('hello zip') }])
+  const archive = await openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
+  vi.stubGlobal('navigator', { userAgentData: { mobile: true } })
+  const big = {
+    ...archive,
+    list: () => [{ path: 'sample/big.bin', directory: false, size: 300 * 1024 * 1024, contentType: '' }],
+  }
+  expect(() => buildArchiveZip(big)).toThrow(TooLargeError)
+})
+
+afterEach(() => vi.unstubAllGlobals())

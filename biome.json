@@ -22,6 +22,12 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "include": ["src/unixfs-car-layout.ts"],
+      "linter": { "rules": { "style": { "noParameterAssign": "off" } } }
+    }
+  ],
   "files": {
     "ignore": ["dist/**", "node_modules/**", "coverage/**"]
   }

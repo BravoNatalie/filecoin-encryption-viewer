@@ -1,6 +1,6 @@
 import type { ProtectedEntry } from './car-archive.js'
-import { NotAShareError, NotAvailableError, TooLargeError, WrongPasswordError } from './car-archive.js'
 import { clearCardLabel, setCardLabel } from './card-label.js'
+import { NotAShareError, NotAvailableError, TooLargeError, WrongPasswordError } from './errors.js'
 import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
 
@@ -24,6 +24,7 @@ const features = () => `
     <li><span class="feature-icon">${SHIELD_ICON}</span>Your privacy<br />matters</li>
   </ul>`
 
+export const TOO_LARGE_MESSAGE = 'This file is too large to save in this browser. Use `filecoin-pin decrypt` instead.'
 const EMPTY_PASSWORD_ERROR = 'Enter the password you received from the sender.'
 
 export function unlockErrorMessage(cause: unknown): string {
@@ -34,7 +35,7 @@ export function unlockErrorMessage(cause: unknown): string {
     return "This share isn't available yet, or the download was interrupted. Try again in a few minutes."
   }
   if (cause instanceof TooLargeError) {
-    return 'This share is too large to open in the browser. Use `filecoin-pin decrypt` instead.'
+    return TOO_LARGE_MESSAGE
   }
   if (cause instanceof NotAShareError) {
     return "This link doesn't point to a filecoin-pin encrypted share."
@@ -317,8 +318,11 @@ function wireDownloadAll(
         status.textContent = `Adding files: ${done} of ${total}`
       })
       status.textContent = 'Zip ready.'
-    } catch {
-      status.textContent = 'The zip could not be created. Try again.'
+    } catch (cause) {
+      status.textContent =
+        cause instanceof TooLargeError
+          ? 'These files are too large to zip in this browser. Use `filecoin-pin decrypt` instead.'
+          : 'The zip could not be created. Try again.'
     } finally {
       button.disabled = false
       label.textContent = 'Download all'
@@ -340,7 +344,7 @@ export function addBackButton(container: HTMLElement, onBack: () => void): void 
 export function showSaveEntry(
   container: HTMLElement,
   entry: ProtectedEntry,
-  onSave: () => Promise<'saved' | 'unsupported'>,
+  onSave: () => Promise<'saved'>,
   previewFailed = false,
   detectedType: string | undefined = undefined
 ): void {
@@ -370,19 +374,61 @@ export function showSaveEntry(
     error.hidden = true
     status.textContent = ''
     try {
-      const result = await onSave()
-      if (result === 'unsupported') {
-        error.textContent = 'Open this protected link in Chromium to download a file this large.'
-        error.hidden = false
-      } else {
-        status.textContent = 'Saved.'
-      }
-    } catch {
-      error.textContent = 'This file could not be saved.'
+      await onSave()
+      status.textContent = 'Saved.'
+    } catch (cause) {
+      error.textContent = cause instanceof TooLargeError ? TOO_LARGE_MESSAGE : 'This file could not be saved.'
       error.hidden = false
     } finally {
       button.disabled = false
       button.textContent = actionLabel
+    }
+  })
+}
+
+/**
+ * The server ignored the Range request and sent the whole encrypted file. `size` is its Content-Length, if known;
+ * `onSave` saves the response body already in flight as `encrypted.fee`.
+ */
+export function showRangeUnsupported(
+  container: HTMLElement,
+  size: number | undefined,
+  onSave: () => Promise<'saved'>
+): void {
+  const label = size ? `Download encrypted file (${formatBytes(size)})` : 'Download encrypted file'
+  setCardLabel('Encrypted share')
+  container.innerHTML = `
+    <div class="content-wrapper">
+      <h1 class="file-title">This share can't be opened in the browser</h1>
+      <p class="lede-left">The server sent the whole encrypted file instead of the parts the Viewer asked for. You can download the encrypted file and decrypt it on your computer with your password.</p>
+      <button class="btn-primary" id="save-encrypted" type="button">${label}</button>
+      <p class="hint" id="save-status" role="status"></p>
+      <p class="error" id="save-error" role="alert" hidden></p>
+      <p class="lede-left note">Then run: <code>npx filecoin-pin decrypt encrypted.fee ./shared</code></p>
+    </div>
+  `
+
+  const button = container.querySelector('#save-encrypted') as HTMLButtonElement
+  const status = container.querySelector('#save-status') as HTMLParagraphElement
+  const error = container.querySelector('#save-error') as HTMLParagraphElement
+  button.addEventListener('click', async () => {
+    if (button.disabled) return
+    button.disabled = true
+    button.textContent = 'Saving…'
+    error.hidden = true
+    status.textContent = ''
+    try {
+      await onSave()
+      status.textContent = 'Saved.'
+    } catch (cause) {
+      error.textContent =
+        cause instanceof TooLargeError
+          ? 'This file is too large to save in this browser. Use `filecoin-pin` to fetch it instead.'
+          : 'This file could not be saved.'
+      error.hidden = false
+    } finally {
+      button.disabled = false
+      button.textContent = label
     }
   })
 }

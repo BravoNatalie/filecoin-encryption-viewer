@@ -1,6 +1,7 @@
 import type { ProtectedArchive, ProtectedEntry } from './car-archive.js'
 import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
+import { RangeUnsupportedError } from './errors.js'
 import { parseFragment } from './fragment.js'
 import {
   detectContentType,
@@ -10,7 +11,14 @@ import {
   revokeRenderedObjectUrls,
 } from './render.js'
 import { saveEntry } from './save.js'
-import { addBackButton, showAccessKeyPrompt, showMissingLink, showProtectedArchive, showSaveEntry } from './ui.js'
+import {
+  addBackButton,
+  showAccessKeyPrompt,
+  showMissingLink,
+  showProtectedArchive,
+  showRangeUnsupported,
+  showSaveEntry,
+} from './ui.js'
 import { buildArchiveZip, zipFileName } from './zip.js'
 
 function getContainer(): HTMLElement {
@@ -74,10 +82,35 @@ async function openAndRender(archive: ProtectedArchive, entry: ProtectedEntry, c
   }
 }
 
+// The server answered a Range request with the whole encrypted file: offer the body already in flight as encrypted.fee.
+function showRangeIgnored(response: Response): void {
+  const length = Number(response.headers.get('content-length'))
+  const size = length > 0 ? length : undefined
+  showRangeUnsupported(container, size, () =>
+    saveEntry(
+      {
+        size: size ?? 0,
+        contentType: 'application/octet-stream',
+        open: async () => {
+          if (!response.body || response.bodyUsed) throw new Error('The encrypted file was already read')
+          return response.body
+        },
+      },
+      'encrypted.fee'
+    )
+  )
+}
+
 // Folder shares keep the archive open: every file view gets a way back to the tree, with no new fetch.
 async function openEntry(archive: ProtectedArchive, entry: ProtectedEntry): Promise<void> {
   const startedAt = performance.now()
-  await openAndRender(archive, entry)
+  try {
+    await openAndRender(archive, entry)
+  } catch (error) {
+    if (!(error instanceof RangeUnsupportedError)) throw error
+    showRangeIgnored(error.response)
+    return
+  }
   if (import.meta.env.DEV) devLog(`open ${entry.path} (${entry.size} bytes): ${elapsed(startedAt)}`)
   addBackButton(container, () => showTree(archive))
 }
@@ -107,31 +140,21 @@ async function downloadAll(
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-// Dev only (stripped from production builds, see scripts/check-dist.mjs): serve a local share
-// and allow ?devcap=<bytes> to exercise the too-large state.
+// Dev only (stripped from production builds, see scripts/check-dist.mjs): serve a local share.
 const elapsed = (since: number) => `${Math.round(performance.now() - since)} ms`
 const devLog = (message: string) => console.log(`[foc-viewer dev] ${message}`)
 
-// Times the request (until headers), first byte and last byte of the body.
-function devTimedFetch(startedAt: number): typeof fetch {
+// Serves the range requests from the dev harness and logs each one (offset, length, time until headers).
+// ?ignore-range makes the harness answer 200 with the whole file, to see the "can't be opened" state.
+function devFetch(): typeof fetch {
+  const url = `/__dev-share${new URLSearchParams(window.location.search).has('ignore-range') ? '?ignore-range' : ''}`
   return async (_input, init) => {
-    const response = await fetch('/__dev-share', init)
-    devLog(`fetch response headers: ${elapsed(startedAt)}`)
-    if (!response.body) return response
-    let sawFirstByte = false
-    const body = response.body.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          if (!sawFirstByte) devLog(`first byte: ${elapsed(startedAt)}`)
-          sawFirstByte = true
-          controller.enqueue(chunk)
-        },
-        flush() {
-          devLog(`last byte (download complete): ${elapsed(startedAt)}`)
-        },
-      })
-    )
-    return new Response(body, response)
+    const startedAt = performance.now()
+    const response = await fetch(url, init)
+    const range = new Headers(init?.headers).get('range')?.match(/^bytes=(\d+)-(\d+)$/)
+    const what = range ? `offset ${range[1]}, length ${Number(range[2]) - Number(range[1]) + 1}` : 'no range'
+    devLog(`range request (${what}) -> ${response.status}: ${elapsed(startedAt)}`)
+    return response
   }
 }
 
@@ -149,17 +172,21 @@ function devTimeKeyDerivation(): void {
 }
 if (import.meta.env.DEV) devTimeKeyDerivation()
 
-function devMaxBytes(): number | undefined {
-  const cap = Number(new URLSearchParams(window.location.search).get('devcap'))
-  return cap > 0 ? cap : undefined
+async function unlockArchive(cid: string, accessKey: string): Promise<void> {
+  try {
+    await unlock(cid, accessKey)
+  } catch (error) {
+    if (!(error instanceof RangeUnsupportedError)) throw error
+    showRangeIgnored(error.response)
+  }
 }
 
-async function unlockArchive(cid: string, accessKey: string): Promise<void> {
+async function unlock(cid: string, accessKey: string): Promise<void> {
   const startedAt = performance.now()
   const archive = import.meta.env.DEV
-    ? await openProtectedArchive(cid, accessKey, devTimedFetch(startedAt), devMaxBytes())
+    ? await openProtectedArchive(cid, accessKey, devFetch())
     : await openProtectedArchive(cid, accessKey)
-  if (import.meta.env.DEV) devLog(`archive ready (fetch + decrypt + CAR parse + listing): ${elapsed(startedAt)}`)
+  if (import.meta.env.DEV) devLog(`archive ready (head + metadata + decrypt + listing): ${elapsed(startedAt)}`)
   await activeArchive?.close()
   activeArchive = archive
   const entries = archive.list()

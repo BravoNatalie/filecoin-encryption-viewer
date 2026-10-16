@@ -1,15 +1,27 @@
-import { CarBlockIterator } from '@ipld/car'
+import { decode as decodeCbor } from '@ipld/dag-cbor'
 import * as fee from 'filecoin-encryption-envelope'
-import { exporter } from 'ipfs-unixfs-exporter'
-import type { ReadableStorage, UnixFSEntry } from 'ipfs-unixfs-exporter'
-import type { CID } from 'multiformats/cid'
+import { CID } from 'multiformats/cid'
+import {
+  NotAShareError,
+  NotAvailableError,
+  RangeUnsupportedError,
+  TooLargeError,
+  WrongPasswordError,
+} from './errors.js'
 import { derivePasswordKey, validateKdfMetadata } from './password-key.js'
+import { openRangeSource } from './range-source.js'
+import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC, decodeVarint, layout } from './unixfs-car-layout.js'
+import type { FileLeaf, FilePlacement, MetadataNode } from './unixfs-car-layout.js'
+
+export { NotAShareError, NotAvailableError, RangeUnsupportedError, TooLargeError, WrongPasswordError }
 
 const CID_PATTERN = /^b[a-z2-7]{20,120}$/
 const MAX_ARCHIVE_ENTRIES = 10_000
-const ENVELOPE_OVERHEAD_BYTES = 64 * 1024
-// ponytail: in-memory, cap 256 MiB; follow-up = CarIndexer + decryptRange blockstore
-export const MAX_SHARE_BYTES = 256 * 1024 * 1024
+const FIRST_WINDOW_BYTES = 256 * 1024
+const MAX_METADATA_BYTES = 16 * 1024 * 1024
+const MAX_BATCH_BYTES = 8 * 1024 * 1024
+// The first batch is one leaf, so sniffing a file's type fetches about 1 MiB instead of a full batch
+const FIRST_BATCH_LEAVES = 1
 
 export interface ProtectedEntry {
   readonly path: string
@@ -24,67 +36,35 @@ export interface ProtectedArchive {
   close(): Promise<void>
 }
 
-export class NotAvailableError extends Error {
-  override name = 'NotAvailableError'
-}
-export class TooLargeError extends Error {
-  override name = 'TooLargeError'
-}
-export class WrongPasswordError extends Error {
-  override name = 'WrongPasswordError'
-}
-export class NotAShareError extends Error {
-  override name = 'NotAShareError'
-  constructor(options?: ErrorOptions) {
-    super("This link doesn't point to a filecoin-pin encrypted share", options)
-  }
+// What every read needs: the envelope, its key and the chunked-envelope params from fee.parse
+interface Reader {
+  source: fee.RandomAccessSource
+  key: Uint8Array
+  params: fee.ChunkedEnvelopeParams
 }
 
 export async function openProtectedArchive(
   cid: string,
   password: string,
-  fetchFn: typeof fetch = fetch,
-  maxBytes = MAX_SHARE_BYTES
+  fetchFn: typeof fetch = fetch
 ): Promise<ProtectedArchive> {
   if (!CID_PATTERN.test(cid)) throw new Error('Invalid encrypted Root CID')
 
-  const body = await fetchShare(cid, fetchFn, maxBytes)
-  const blocks = new Map<string, Uint8Array>()
   let key: Uint8Array | undefined
   try {
-    const plaintext = body.pipeThrough(
-      fee.decrypt(async ({ appMetadata }) => {
-        const { salt, iterations } = validateKdfMetadata(appMetadata)
-        key = await derivePasswordKey(password, salt, iterations)
-        return key
-      })
-    )
-    const root = await readCar(plaintext.pipeThrough(capBytes(maxBytes)), blocks)
-    return await buildArchive(root, blocks)
+    const source = await openRangeSource(`https://${cid}.ipfs.dweb.link/`, fetchFn)
+    const info = await fee.parse(source)
+    if (info.scheme !== 'chunked' || info.contentType !== CAR_CONTENT_TYPE || !info.params.plaintextLength) {
+      throw new NotAShareError()
+    }
+    const { salt, iterations } = validateKdfMetadata(info.appMetadata)
+    key = await derivePasswordKey(password, salt, iterations)
+    // From here the archive owns the key; close() zeroes it
+    return await buildArchive({ source, key, params: info.params })
   } catch (error) {
-    blocks.clear()
-    throw mapError(error)
-  } finally {
     key?.fill(0)
+    throw mapError(error)
   }
-}
-
-async function fetchShare(cid: string, fetchFn: typeof fetch, maxBytes: number): Promise<ReadableStream<Uint8Array>> {
-  let response: Response
-  try {
-    response = await fetchFn(`https://${cid}.ipfs.dweb.link/`, {
-      redirect: 'error',
-    })
-  } catch (error) {
-    throw new NotAvailableError('Share is not available yet', { cause: error })
-  }
-  if ([404, 502, 504].includes(response.status)) throw new NotAvailableError('Share is not available yet')
-  if (response.status !== 200) throw new Error(`Unexpected response: ${response.status}`)
-
-  const length = Number(response.headers.get('content-length'))
-  if (length > maxBytes + (maxBytes >> 10) + ENVELOPE_OVERHEAD_BYTES) throw new TooLargeError('Share is too large')
-  if (!response.body) throw new Error('Response has no body')
-  return response.body
 }
 
 const { errors } = fee
@@ -120,98 +100,22 @@ function mapError(error: unknown): unknown {
   return error
 }
 
-function capBytes(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
-  let total = 0
-  return new TransformStream({
-    transform(chunk, controller) {
-      total += chunk.byteLength
-      if (total > maxBytes) throw new TooLargeError('Share is too large')
-      controller.enqueue(chunk)
-    },
-  })
-}
+async function buildArchive(reader: Reader): Promise<ProtectedArchive> {
+  const { files, dirs } = await readLayout(reader)
 
-// ReadableStream is not async-iterable in every supported browser
-async function* iterate(stream: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
-  const reader = stream.getReader()
-  let finished = false
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        finished = true
-        return
-      }
-      yield value
-    }
-  } catch (error) {
-    finished = true // the stream already errored; nothing to cancel
-    throw error
-  } finally {
-    // Consumer stopped early: cancel so the download stops
-    if (!finished) await reader.cancel().catch(() => undefined)
-    reader.releaseLock()
+  // The wrapper holds exactly one entry: the shared file or folder
+  const paths = [...dirs, ...files.keys()]
+  if (new Set(paths.map((path) => path.split('/')[0])).size !== 1 || paths.some((path) => path.includes('\\'))) {
+    throw new NotAShareError()
   }
-}
-
-async function readCar(stream: ReadableStream<Uint8Array>, blocks: Map<string, Uint8Array>): Promise<CID> {
-  const chunks = iterate(stream)
-  try {
-    const car = await CarBlockIterator.fromIterable(chunks)
-    const roots = await car.getRoots()
-    if (roots.length !== 1) throw new NotAShareError()
-    // Not hash-checked: FEE has already authenticated every byte
-    for await (const block of car) blocks.set(block.cid.toString(), block.bytes)
-    return roots[0]
-  } finally {
-    // No-op after a full read; on early exit this runs iterate()'s finally, which cancels the download
-    await chunks.return(undefined)
+  if (paths.length > MAX_ARCHIVE_ENTRIES) {
+    throw new Error(`Protected archive has more than ${MAX_ARCHIVE_ENTRIES} entries`)
   }
-}
-
-async function buildArchive(root: CID, blocks: Map<string, Uint8Array>): Promise<ProtectedArchive> {
-  const blockstore = {
-    *get(cid: CID): Generator<Uint8Array> {
-      const bytes = blocks.get(cid.toString())
-      if (!bytes) throw new NotAShareError()
-      yield bytes
-    },
-  }
-  const files = new Map<string, CID>()
-  const entries: ProtectedEntry[] = []
-
-  const rootEntry = await exporter(root, blockstore)
-  if (rootEntry.type !== 'directory') throw new NotAShareError()
-  const children: UnixFSEntry[] = []
-  const names: string[] = []
-  for await (const child of rootEntry.entries()) {
-    if (names.length === 1) throw new NotAShareError()
-    names.push(child.name)
-    children.push(await exporter(child.cid, blockstore))
-  }
-  if (children.length !== 1) throw new NotAShareError()
-
-  async function add(entry: UnixFSEntry, path: string): Promise<void> {
-    if (entries.length >= MAX_ARCHIVE_ENTRIES) {
-      throw new Error(`Protected archive has more than ${MAX_ARCHIVE_ENTRIES} entries`)
-    }
-    if (entry.type === 'directory') {
-      entries.push(frozen(`${path}/`, true, 0))
-      for await (const child of entry.entries()) {
-        assertSafeName(child.name)
-        await add(await exporter(child.cid, blockstore), `${path}/${child.name}`)
-      }
-      return
-    }
-    if (entry.type !== 'file' && entry.type !== 'raw') throw new NotAShareError()
-    files.set(path, entry.cid)
-    entries.push(frozen(path, false, Number(entry.size)))
-  }
-
-  assertSafeName(names[0])
-  await add(children[0], names[0])
-  entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
-  return createArchive(Object.freeze(entries), files, blocks, blockstore)
+  const entries = [
+    ...dirs.map((path) => frozen(`${path}/`, true, 0)),
+    ...[...files].map(([path, file]) => frozen(path, false, file.size)),
+  ].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  return createArchive(Object.freeze(entries), files, reader)
 }
 
 function frozen(path: string, directory: boolean, size: number): ProtectedEntry {
@@ -223,41 +127,207 @@ function frozen(path: string, directory: boolean, size: number): ProtectedEntry 
   })
 }
 
-function assertSafeName(name: string): void {
-  if (!name || name === '.' || name === '..' || /[/\\\0]/.test(name)) throw new NotAShareError()
+interface Prefix {
+  root?: CID
+  headerLength: number
+  pos: number
+  nodes: Map<string, MetadataNode>
+  sections: { cid: CID; offset: number; len: number }[]
+}
+
+// Reads the CAR up to its first raw block, then lets layout() place everything. Anything that isn't what
+// `add --encrypt` writes (metadata-first, canonical header, one root) is NotAShareError.
+async function readLayout(reader: Reader) {
+  const prefix = await readPrefix(reader)
+  const { root } = prefix
+  if (!root) throw new NotAShareError()
+
+  let placed: ReturnType<typeof layout>
+  try {
+    placed = layout(root, prefix.nodes)
+  } catch (cause) {
+    throw new NotAShareError({ cause })
+  }
+  const inOrder =
+    placed.header.length === prefix.headerLength &&
+    placed.metadata.length === prefix.sections.length &&
+    placed.metadata.every(
+      (node, index) =>
+        node.cid.equals(prefix.sections[index].cid) &&
+        node.offset === prefix.sections[index].offset &&
+        node.len === prefix.sections[index].len
+    )
+  if (!inOrder || placed.total !== reader.params.plaintextLength) throw new NotAShareError()
+  return placed
+}
+
+// Consecutive decryptRange windows from plaintext offset 0, each continuing where the last ended, doubling in size.
+// Stops at the first raw section header or at the end of the plaintext (a folder of empty folders has no raw block).
+async function readPrefix(reader: Reader): Promise<Prefix> {
+  const total = reader.params.plaintextLength ?? 0
+  const prefix: Prefix = { headerLength: 0, pos: 0, nodes: new Map(), sections: [] }
+  let buffer = new Uint8Array(0)
+  let window = FIRST_WINDOW_BYTES
+  for (;;) {
+    const { stream, rangeLength } = await fee.decryptRange(
+      reader.source,
+      reader.key,
+      { offset: buffer.length, length: window },
+      { params: reader.params }
+    )
+    const next = new Uint8Array(buffer.length + rangeLength)
+    next.set(buffer)
+    next.set(await readExact(stream, rangeLength), buffer.length)
+    buffer = next
+
+    if (parseSections(buffer, prefix)) return prefix
+    if (buffer.length >= total) {
+      if (prefix.pos !== buffer.length) throw new NotAShareError()
+      return prefix
+    }
+    if (buffer.length >= MAX_METADATA_BYTES) throw new NotAShareError()
+    window = Math.min(window * 2, MAX_METADATA_BYTES - buffer.length)
+  }
+}
+
+// Advances `prefix` over whatever complete sections `buffer` holds. True once the next section is a raw block.
+function parseSections(buffer: Uint8Array, prefix: Prefix): boolean {
+  try {
+    if (!prefix.root) {
+      const header = decodeVarint(buffer)
+      if (!header || buffer.length < header[1] + header[0]) return false
+      const { roots, version } = decodeCbor(buffer.subarray(header[1], header[1] + header[0])) as {
+        roots?: unknown[]
+        version?: unknown
+      }
+      const root = roots?.length === 1 ? CID.asCID(roots[0]) : null
+      if (!root || version !== 1) throw new NotAShareError()
+      prefix.root = root
+      prefix.headerLength = prefix.pos = header[1] + header[0]
+    }
+    for (;;) {
+      const section = decodeVarint(buffer, prefix.pos)
+      if (!section) return false
+      const [len, varintLength] = section
+      const start = prefix.pos + varintLength
+      if (len > MAX_METADATA_BYTES || buffer.length - start < 2) {
+        if (len > MAX_METADATA_BYTES) throw new NotAShareError()
+        return false
+      }
+      // CIDv1: version byte, then the codec (both below 0x80 for the codecs the profile uses)
+      if (buffer[start] !== 1) throw new NotAShareError()
+      const codec = buffer[start + 1]
+      if (codec === RAW_CODEC) return true
+      if (codec !== DAG_PB_CODEC) throw new NotAShareError()
+      if (buffer.length < start + len) return false
+
+      const [cid, bytes] = CID.decodeFirst(buffer.subarray(start, start + len))
+      prefix.nodes.set(cid.toString(), { cid, bytes })
+      prefix.sections.push({ cid, offset: prefix.pos, len: varintLength + len })
+      prefix.pos = start + len
+    }
+  } catch (cause) {
+    throw cause instanceof NotAShareError ? cause : new NotAShareError({ cause })
+  }
 }
 
 function createArchive(
   entries: readonly ProtectedEntry[],
-  files: Map<string, CID>,
-  blocks: Map<string, Uint8Array>,
-  blockstore: ReadableStorage
+  files: Map<string, FilePlacement>,
+  reader: Reader
 ): ProtectedArchive {
   let closed = false
   return {
     list: () => entries,
     async open(path) {
       if (closed) throw new Error('Protected archive is closed')
-      const cid = files.get(path)
-      if (!cid) throw new Error(`Protected archive file not found: ${path}`)
-      const file = await exporter(cid, blockstore)
-      if (file.type !== 'file' && file.type !== 'raw') throw new Error(`Protected archive file not found: ${path}`)
-      const chunks = file.content()
-      return new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          const { done, value } = await chunks.next()
-          if (done) controller.close()
-          else controller.enqueue(value)
-        },
-        cancel: async () => {
-          await chunks.return()
-        },
-      })
+      const file = files.get(path)
+      if (!file) throw new Error(`Protected archive file not found: ${path}`)
+      return readFile(file, reader, () => closed)
     },
     async close() {
       closed = true
-      blocks.clear()
+      reader.key.fill(0)
       files.clear()
     },
   }
+}
+
+// Leaves are contiguous in the CAR unless a repeated chunk points back to its first occurrence, so a file is a few
+// long reads. After the first batch, each spans at most MAX_BATCH_BYTES of CAR (a lone leaf may be larger).
+function groupBatches(leaves: FileLeaf[]): FileLeaf[][] {
+  const batches: FileLeaf[][] = []
+  let batch: FileLeaf[] = []
+  for (const item of leaves) {
+    if (item.len === 0) continue
+    const last = batch.at(-1)
+    if (
+      last &&
+      ((batches.length === 0 && batch.length >= FIRST_BATCH_LEAVES) ||
+        item.leaf.offset !== last.leaf.dataOffset + last.len ||
+        end(item) - batch[0].leaf.dataOffset > MAX_BATCH_BYTES)
+    ) {
+      batches.push(batch)
+      batch = []
+    }
+    batch.push(item)
+  }
+  if (batch.length > 0) batches.push(batch)
+  return batches
+}
+
+const end = (item: FileLeaf) => item.leaf.dataOffset + item.len
+
+// One batch in flight: a batch is decrypted only when the consumer has drained the previous one.
+function readFile(file: FilePlacement, reader: Reader, isClosed: () => boolean): ReadableStream<Uint8Array> {
+  const batches = groupBatches(file.leaves)
+  let next = 0
+  let cancelled = false
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (isClosed()) throw new Error('Protected archive is closed')
+        const batch = batches[next++]
+        if (!batch) return controller.close()
+        const offset = batch[0].leaf.dataOffset
+        const length = end(batch[batch.length - 1]) - offset
+        let data: Uint8Array
+        try {
+          const { stream } = await fee.decryptRange(
+            reader.source,
+            reader.key,
+            { offset, length },
+            { params: reader.params }
+          )
+          data = await readExact(stream, length)
+        } catch (error) {
+          throw mapError(error)
+        }
+        if (cancelled) return
+        // FEE authenticated every chunk, so no hash check here
+        for (const item of batch) {
+          controller.enqueue(data.subarray(item.leaf.dataOffset - offset, end(item) - offset))
+        }
+      },
+      cancel() {
+        cancelled = true
+      },
+    },
+    { highWaterMark: 0 }
+  )
+}
+
+// ReadableStream is not async-iterable in every supported browser
+async function readExact(stream: ReadableStream<Uint8Array>, length: number): Promise<Uint8Array> {
+  const out = new Uint8Array(length)
+  const reader = stream.getReader()
+  let filled = 0
+  while (filled < length) {
+    const { done, value } = await reader.read()
+    if (done) break
+    out.set(value, filled)
+    filled += value.length
+  }
+  if (filled !== length) throw new errors.InvalidSourceLengthError('The range ended early')
+  return out
 }

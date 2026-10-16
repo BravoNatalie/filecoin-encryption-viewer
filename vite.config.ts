@@ -32,12 +32,31 @@ function devHarness(): Plugin {
       )
     },
     configureServer(server) {
-      server.middlewares.use(DEV_SHARE_PATH, async (_req, res) => {
+      server.middlewares.use(DEV_SHARE_PATH, async (req, res) => {
         try {
           const body = await readFile(DEV_SHARE_FILE)
           res.setHeader('Content-Type', 'application/octet-stream')
-          res.setHeader('Content-Length', body.length)
-          res.end(body)
+          // ?ignore-range answers 200 with the whole file, like a server that ignores Range
+          const ignoreRange = new URL(req.url ?? '/', 'http://localhost').searchParams.has('ignore-range')
+          const range = ignoreRange ? undefined : req.headers.range
+          if (range === undefined) {
+            res.setHeader('Content-Length', body.length)
+            res.end(body)
+            return
+          }
+          const match = /^bytes=(\d+)-(\d*)$/.exec(range)
+          const start = Number(match?.[1])
+          const end = Math.min(match?.[2] ? Number(match[2]) : body.length - 1, body.length - 1)
+          if (!match || start >= body.length || end < start) {
+            res.statusCode = 416
+            res.setHeader('Content-Range', `bytes */${body.length}`)
+            res.end()
+            return
+          }
+          res.statusCode = 206
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${body.length}`)
+          res.setHeader('Content-Length', end - start + 1)
+          res.end(body.subarray(start, end + 1))
         } catch {
           res.statusCode = 404
           res.end()

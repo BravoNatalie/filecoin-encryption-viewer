@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { expect, it, vi } from 'vitest'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
+import { serveRange } from './fixtures/serve-range.js'
 
 const CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
 
@@ -22,8 +23,8 @@ it('goes back from a file to the tree without fetching or deriving the key again
     { path: 'docs/a.txt', content: new TextEncoder().encode('alpha text') },
     { path: 'docs/b.txt', content: new TextEncoder().encode('beta text') },
   ])
-  const fetchSpy = vi.fn(async () => new Response(share as BodyInit))
-  vi.stubGlobal('fetch', fetchSpy)
+  const stub = serveRange(share)
+  vi.stubGlobal('fetch', stub.fetch)
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }))
   const deriveBits = vi.spyOn(crypto.subtle, 'deriveBits')
 
@@ -47,7 +48,7 @@ it('goes back from a file to the tree without fetching or deriving the key again
   second.click()
   await waitFor(() => app().querySelector('pre')?.textContent === 'beta text')
 
-  expect(fetchSpy).toHaveBeenCalledTimes(1)
+  expect(stub.requests).toHaveLength(1)
   expect(deriveBits).toHaveBeenCalledTimes(1)
 
   // Download all (.zip) reuses the open archive too
@@ -58,6 +59,6 @@ it('goes back from a file to the tree without fetching or deriving the key again
   await waitFor(() => app().querySelector('#zip-status')?.textContent === 'Zip ready.')
 
   expect(click).toHaveBeenCalledOnce()
-  expect(fetchSpy).toHaveBeenCalledTimes(1)
+  expect(stub.requests).toHaveLength(1)
   expect(deriveBits).toHaveBeenCalledTimes(1)
 })

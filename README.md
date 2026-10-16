@@ -73,7 +73,7 @@ The key derivation is a copy of filecoin-pin's (`src/common/encryption.ts`). A k
 
 ## Content rendering
 
-The viewer downloads the share once, decrypts it in memory and lists what's inside. Shares above 256 MiB of plaintext show "Too large for the browser, use `filecoin-pin decrypt`".
+The viewer reads the share with HTTP Range requests. It fetches only the metadata to show the tree, and only a file's own ranges when you open it. There is no cap on the share's size. Saving a file without `showSaveFilePicker` (Firefox, Safari, mobile) builds it in memory, capped at 1 GiB on desktop and 256 MiB on mobile; above that it shows "too large to save in this browser, use `filecoin-pin decrypt`". If the server ignores Range and sends the whole file, the viewer offers that encrypted file as a download (`encrypted.fee`) instead.
 
 - **Single file:** opens straight into its file.
 - **Folder:** shown as a tree under the folder's real name, with sizes. Folders open and close natively, and folders at depth 2 or shallower start open.
@@ -112,13 +112,13 @@ pnpm dev:share ./some-folder   # or a single file; add --password <pw> to change
 pnpm dev
 ```
 
-Open the printed URL (`http://localhost:5173/#v1/<cid>`). The dev server answers the share request from `dev/share.fee` and relaxes the page CSP for Vite; neither exists in `pnpm build`, which fails if either leaks into `dist/index.html`. In dev, the console also logs `[foc-viewer dev]` timings for each unlock and file open.
+Open the printed URL (`http://localhost:5173/#v1/<cid>`). The dev server answers the share's Range requests from `dev/share.fee` and relaxes the page CSP for Vite; neither exists in `pnpm build`, which fails if either leaks into `dist/index.html`. In dev, the console also logs `[foc-viewer dev]` timings for each unlock, file open and range request.
 
 | State | How to trigger |
 |---|---|
 | Wrong password | Enter anything other than the printed password |
 | Not available | Delete `dev/share.fee`, then submit |
-| Too large | Add `?devcap=100` (any cap below the share's size) before the `#` (`http://localhost:5173/?devcap=100#v1/<cid>`) |
+| Can't be opened in the browser | Add `?ignore-range` before the `#` (`http://localhost:5173/?ignore-range#v1/<cid>`); the dev server then answers `200` with the whole file |
 | Incomplete link | Use any other fragment, for example `#nope` |
 
 The real path (the inbrowser.link service worker fetching `https://<cid>.ipfs.dweb.link/`) can only be tested on the published Viewer.

@@ -1,15 +1,13 @@
 // @vitest-environment happy-dom
 import { expect, it, vi } from 'vitest'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
+import { serveRange } from './fixtures/serve-range.js'
 
 const CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
 
 it('opens a single-file share directly, with no tree, back button or Download all', async () => {
   const share = await makeShare([{ path: 'note.txt', content: new TextEncoder().encode('just one file') }])
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => new Response(share as BodyInit))
-  )
+  vi.stubGlobal('fetch', serveRange(share).fetch)
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }))
 
   document.body.innerHTML = '<div id="app"></div>'
