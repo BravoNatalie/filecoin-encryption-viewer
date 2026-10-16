@@ -97,6 +97,19 @@ describe('renderContent', () => {
     expect(container.innerHTML).toContain('>Download</a>')
   })
 
+  it('renders text wide, and a following view clears the width', () => {
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:text'), revokeObjectURL: vi.fn() })
+    const add = vi.fn()
+    const remove = vi.fn()
+    const container = { classList: { add, remove }, innerHTML: '' } as unknown as HTMLElement
+
+    renderContent(container, new TextEncoder().encode('hello'), 'text/plain', 'a.txt')
+
+    expect(remove).toHaveBeenCalledWith('wide')
+    expect(add).toHaveBeenCalledWith('wide')
+    expect(container.innerHTML).toContain('<pre>hello</pre>')
+  })
+
   it('renders unknown binary data as a titled download card without the raw MIME type', () => {
     vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:bin'), revokeObjectURL: vi.fn() })
     const container = {

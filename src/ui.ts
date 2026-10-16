@@ -136,7 +136,7 @@ interface ArchiveTreeNode {
   children: Map<string, ArchiveTreeNode>
 }
 
-const AUTO_OPEN_DEPTH = 2
+const AUTO_OPEN_DEPTH = 1
 const ICON_ATTRS =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"'
 const FOLDER_ICON = `<svg ${ICON_ATTRS}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>`
@@ -282,10 +282,12 @@ const DOWNLOAD_ICON = `<svg ${ICON_ATTRS}><path d="M12 4v11" /><path d="M7 10.5l
 // File count on the left, compact zip action on the right. The page's <h1> is the label above the card.
 function treeHeaderMarkup(entries: readonly ProtectedEntry[], withDownloadAll: boolean): string {
   const files = entries.filter((entry) => !entry.directory)
+  const folders = entries.length - files.length
   const bytes = files.reduce((total, entry) => total + entry.size, 0)
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
   const summary =
     entries.length > 0
-      ? `<p class="tree-summary">${files.length} ${files.length === 1 ? 'file' : 'files'} · ${formatBytes(bytes)}</p>`
+      ? `<p class="tree-summary">${count(folders, 'folder')} · ${count(files.length, 'file')} · ${formatBytes(bytes)}</p>`
       : ''
   const action = withDownloadAll
     ? `<button type="button" class="btn-compact" id="download-all" aria-label="Download all files as a zip">${DOWNLOAD_ICON}<span class="btn-label">Download all</span></button>`

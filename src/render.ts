@@ -146,6 +146,7 @@ export function renderContent(
 
   if (contentType === 'text/plain') {
     const text = new TextDecoder().decode(data)
+    container.classList.add('wide')
     container.innerHTML = `
       <div class="content-wrapper">${header}
         <pre>${escapeHtml(text)}</pre>

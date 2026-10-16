@@ -29,7 +29,7 @@ it('shows the label as the page h1 on tree and file screens, and not on the prom
   expect(container.classList.contains('label-card')).toBe(true)
   expect(container.querySelector('#download-all')?.getAttribute('aria-label')).toBe('Download all files as a zip')
   expect(container.querySelector('#download-all')?.textContent).toContain('Download all')
-  expect(container.textContent).toContain('1 file · 5 B')
+  expect(container.textContent).toContain('1 folder · 1 file · 5 B')
 
   expect(container.querySelector('.eyebrow')).toBeNull()
 

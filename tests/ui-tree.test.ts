@@ -47,15 +47,34 @@ describe('showProtectedArchive tree', () => {
     expect(container.querySelectorAll('svg[aria-hidden="true"]').length).toBeGreaterThan(3)
   })
 
-  it('opens folders down to depth 2 and collapses deeper ones', () => {
-    showProtectedArchive(container, entries, async () => {})
+  it('opens the top folder and its subfolders, and collapses deeper ones', () => {
+    showProtectedArchive(container, [dir('top'), dir('top/a'), dir('top/a/b'), file('top/a/b/c.txt')], async () => {})
     const open = (name: string) =>
       Array.from(container.querySelectorAll('details')).find((d) => d.querySelector('.tree-name')?.textContent === name)
         ?.open
-    expect(open('share')).toBe(true)
-    expect(open('alpha')).toBe(true)
-    expect(open('one')).toBe(true)
-    expect(open('two')).toBe(false)
+    expect(open('top')).toBe(true)
+    expect(open('a')).toBe(true)
+    expect(open('b')).toBe(false)
+  })
+
+  it('summarizes folders, files and size, with singular forms', () => {
+    const summary = () => container.querySelector('.tree-summary')?.textContent
+    showProtectedArchive(
+      container,
+      [
+        dir('top'),
+        dir('top/a'),
+        dir('top/a/b'),
+        file('top/a/b/c.txt', 1000),
+        file('top/long.txt', 30_000),
+        file('top/short.txt', 6000),
+      ],
+      async () => {}
+    )
+    expect(summary()).toBe('3 folders · 3 files · 37 KB')
+
+    showProtectedArchive(container, [dir('top'), file('top/a.txt', 5)], async () => {})
+    expect(summary()).toBe('1 folder · 1 file · 5 B')
   })
 
   it('restores folder state passed back in', () => {
