@@ -1,5 +1,5 @@
 const LABELS: Record<string, string> = {
-  'application/pdf': 'PDF document',
+  'application/pdf': 'PDF',
   'application/zip': 'ZIP archive',
   'application/gzip': 'GZIP archive',
   'application/json': 'JSON',

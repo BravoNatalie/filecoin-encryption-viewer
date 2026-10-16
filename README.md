@@ -79,21 +79,17 @@ The viewer downloads the share once, decrypts it in memory and lists what's insi
 - **Folder:** shown as a tree under the folder's real name, with sizes. Folders open and close natively, and folders at depth 2 or shallower start open.
 - **"← All files":** every file view of a folder share has this button. It returns to the tree from the already-open archive, with no new fetch and no new decryption, and remembers which folders were open.
 - **"Download all":** builds a ZIP of the whole folder in the browser from the open archive (no re-decryption) and downloads it as `<folder>.zip`.
-- **File views:** each starts with the file name, a type label and the size ("PDF document · 4.9 KB"), then the preview, then a Download button.
+- **File views:** each starts with the file name, a type label and the size ("PDF · 4.9 KB"), then the preview, then a Download button.
 
 | Entry | Rendering |
 |---|---|
 | Self-contained HTML or text up to 8 MiB | HTML: static markup in an opaque-origin iframe; scripts, handlers, refresh, forms, embedded contexts, anchors, SVG animation and navigation/resource URLs are removed. Text: shown as plain text |
 | Image, audio or video up to 64 MiB | Inline browser preview with a Download button |
-| PDF up to 64 MiB | Download button; the inline preview is a known issue (see below) |
+| PDF up to 64 MiB, starting with `%PDF-` | A panel with "Open PDF in a new tab" and a Download button |
 | Unknown type | A download card: file name, "Unknown file type · size" and a Download button |
 | Any larger entry | A save screen with the type and size. Explicit save through the File System Access API on Chromium; other browsers show a compatibility message |
 
-The type is detected from a bounded sniff of the decrypted bytes, never from the file name.
-
-## Known issues
-
-- PDF inline preview is blocked by the page CSP in Chrome; a fix is pending.
+PDFs open in the browser's own PDF viewer in a new tab, with no inline preview, so the page CSP can forbid frames and plugins. The type is detected from a bounded sniff of the decrypted bytes, never from the file name.
 
 ## Development
 

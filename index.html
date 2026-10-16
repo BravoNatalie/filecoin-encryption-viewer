@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob: data:; font-src data:; connect-src https://*.ipfs.dweb.link; object-src blob:; base-uri 'none'; form-action 'none'; frame-src 'none'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob: data:; font-src data:; connect-src https://*.ipfs.dweb.link; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Encrypted share · Filecoin Onchain Cloud</title>
@@ -534,9 +534,14 @@
         margin-top: 0.75rem;
       }
 
-      /* Tighter card while the folder tree is shown (class set with the label, see card-label.ts) */
-      #app.tree-card {
+      /* Tighter card while a label is shown above it (tree and file screens; class set with the label, see card-label.ts) */
+      #app.label-card {
         padding: 1rem 1.25rem 1.25rem;
+      }
+
+      /* Wide cards (image, video, HTML previews): the label follows the card's left edge */
+      body:has(#app.wide) #card-label {
+        width: min(75rem, calc(100% - 2rem));
       }
 
       .card-label {
@@ -563,7 +568,7 @@
           margin-top: 0.875rem;
         }
 
-        #app.tree-card {
+        #app.label-card {
           padding: 1.25rem 2rem 2rem;
         }
       }
@@ -614,6 +619,85 @@
         margin: 0;
       }
 
+      /* PDF: header row, action row and a small security note; the PDF opens in a new tab */
+      .pdf-head {
+        display: flex;
+        gap: 0.875rem;
+        align-items: center;
+        justify-content: center;
+        margin: 0 0 1.5rem;
+      }
+
+      .pdf-icon {
+        width: 4.5rem;
+        height: 4.5rem;
+        flex: none;
+        color: var(--brand-ink);
+      }
+
+      .pdf-icon-label {
+        fill: var(--card);
+        font-family: inherit;
+        font-size: 9px;
+        font-weight: 700;
+      }
+
+      .pdf-head h1 {
+        margin: 0 0 0.125rem;
+        font-size: 1.25rem;
+      }
+
+      .pdf-head .lede-left {
+        margin: 0;
+        font-size: 0.9375rem;
+      }
+
+      .pdf-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: center;
+      }
+
+      .pdf-actions > a {
+        display: inline-flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        width: auto;
+        min-height: 3rem;
+        margin: 0;
+        padding: 0 1.25rem;
+        white-space: nowrap;
+      }
+
+      .pdf-actions > a svg {
+        width: 1rem;
+        height: 1rem;
+        flex: none;
+      }
+
+      @media (max-width: 639px) {
+        .pdf-head {
+          margin-bottom: 1.25rem;
+        }
+
+        /* Side by side 50/50 when both labels fit, otherwise each takes a full row (Download first) */
+        .pdf-actions > a {
+          flex: 1 1 calc(50% - 0.375rem);
+          min-width: max-content;
+          padding: 0 1rem;
+        }
+      }
+
+      .pdf-note {
+        text-align: center;
+        margin: 0.75rem 0 0;
+        color: var(--muted-foreground);
+        font-size: 0.8125rem;
+      }
+
       #html-preview {
         margin: 0.5rem 0 0;
       }
@@ -644,13 +728,6 @@
         font-size: 0.875rem;
         white-space: pre-wrap;
         word-break: break-word;
-      }
-
-      .content-wrapper embed {
-        width: 100%;
-        min-height: 80vh;
-        border: 0;
-        background: #fff;
       }
 
       /* The sandboxed page can't size itself (no scripts), so the frame has a fixed height. */

@@ -2,7 +2,13 @@ import type { ProtectedArchive, ProtectedEntry } from './car-archive.js'
 import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
 import { parseFragment } from './fragment.js'
-import { detectContentType, isBinaryPreviewType, renderContent, revokeRenderedObjectUrls } from './render.js'
+import {
+  detectContentType,
+  isBinaryPreviewType,
+  renderContent,
+  revokePdfObjectUrls,
+  revokeRenderedObjectUrls,
+} from './render.js'
 import { saveEntry } from './save.js'
 import { addBackButton, showAccessKeyPrompt, showMissingLink, showProtectedArchive, showSaveEntry } from './ui.js'
 import { buildArchiveZip, zipFileName } from './zip.js'
@@ -186,6 +192,7 @@ window.addEventListener(
     const archive = activeArchive
     activeArchive = undefined
     void archive?.close()
+    revokePdfObjectUrls()
   },
   { once: true }
 )

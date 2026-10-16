@@ -1,10 +1,23 @@
 import { filetypemime } from 'magic-bytes.js'
-import { clearCardLabel } from './card-label.js'
+import { setCardLabel } from './card-label.js'
 import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
 import { createLockedHtmlFrame } from './sandbox.js'
 
 const activeObjectUrls = new WeakMap<HTMLElement, string[]>()
+// A PDF opens in a new tab that may still be loading its blob URL, so these outlive the view (revoked on pagehide).
+const pdfObjectUrls = new Set<string>()
+
+const PDF_SIGNATURE = [0x25, 0x50, 0x44, 0x46, 0x2d] // "%PDF-"
+const hasPdfSignature = (data: Uint8Array) => PDF_SIGNATURE.every((byte, index) => data[index] === byte)
+
+export function revokePdfObjectUrls(): void {
+  for (const objectUrl of pdfObjectUrls) URL.revokeObjectURL(objectUrl)
+  pdfObjectUrls.clear()
+}
+
+const PDF_ICON = `<svg class="pdf-icon" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8h25l15 15v37a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4V12a4 4 0 0 1 4-4z" /><path d="M43 8v15h15" /><rect x="22" y="40" width="28" height="15" rx="3" fill="currentColor" stroke="none" /><text x="36" y="51.5" text-anchor="middle" class="pdf-icon-label" stroke="none">PDF</text></svg>`
+const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" /></svg>`
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -39,10 +52,10 @@ export function isBinaryPreviewType(contentType: string): boolean {
   )
 }
 
-// Eyebrow, file name (full path in the tooltip) and a "<type> · <size>" line, shared by every file view.
+// File name (full path in the tooltip) and a "<type> · <size>" line, shared by file views. The "Encrypted share"
+// label sits above the card.
 function fileHeader(name: string, title: string, contentType: string, size: number): string {
   return `
-      <p class="eyebrow">Encrypted share</p>
       <h1 class="file-title" title="${escapeHtml(title)}">${escapeHtml(name)}</h1>
       <p class="lede-left">${fileTypeLabel(contentType)} · ${formatBytes(size)}</p>`
 }
@@ -64,13 +77,16 @@ function renderHtml(container: HTMLElement, data: Uint8Array, displayName: strin
 export function renderContent(
   container: HTMLElement,
   data: Uint8Array,
-  contentType: string,
+  sniffedType: string,
   displayName = 'Decrypted file',
   title = displayName
 ): void {
   revokeRenderedObjectUrls(container)
-  clearCardLabel()
+  setCardLabel('Encrypted share')
   container.classList.remove('wide')
+  // Never trust the sniffed type alone for PDFs: the bytes must really start with %PDF-
+  const contentType =
+    sniffedType === 'application/pdf' && !hasPdfSignature(data) ? 'application/octet-stream' : sniffedType
   if (contentType === 'text/html') {
     renderHtml(container, data, displayName, title)
     return
@@ -80,7 +96,8 @@ export function renderContent(
     type: contentType,
   })
   const objectUrl = URL.createObjectURL(blob)
-  activeObjectUrls.set(container, [objectUrl])
+  if (contentType === 'application/pdf') pdfObjectUrls.add(objectUrl)
+  else activeObjectUrls.set(container, [objectUrl])
   const filename = 'decrypted-content'
   const header = fileHeader(displayName, title, contentType, data.byteLength)
 
@@ -109,9 +126,19 @@ export function renderContent(
 
   if (contentType === 'application/pdf') {
     container.innerHTML = `
-      <div class="content-wrapper">${header}
-        <embed src="${objectUrl}" type="application/pdf" width="100%" height="600px" />
-        <a class="btn-secondary" href="${objectUrl}" download="${escapeHtml(filename)}.pdf">Download</a>
+      <div class="content-wrapper">
+        <div class="pdf-head">
+          ${PDF_ICON}
+          <div>
+            <h1 class="file-title" title="${escapeHtml(title)}">${escapeHtml(displayName)}</h1>
+            <p class="lede-left">${fileTypeLabel(contentType)} · ${formatBytes(data.byteLength)}</p>
+          </div>
+        </div>
+        <div class="pdf-actions">
+          <a class="btn-secondary" href="${objectUrl}" download="${escapeHtml(filename)}.pdf">Download</a>
+          <a class="btn-primary pdf-open" href="${objectUrl}" target="_blank" rel="noopener noreferrer">Open in new tab ${EXTERNAL_ICON}</a>
+        </div>
+        <p class="pdf-note">Opens in your browser's own PDF viewer. The file was decrypted on this device and is never uploaded.</p>
       </div>
     `
     return

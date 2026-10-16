@@ -345,10 +345,9 @@ export function showSaveEntry(
   detectedType: string | undefined = undefined
 ): void {
   const actionLabel = previewFailed ? 'Download instead' : 'Download file'
-  clearCardLabel()
+  setCardLabel('Encrypted share')
   container.innerHTML = `
     <div class="content-wrapper">
-      <p class="eyebrow">Encrypted share</p>
       <h1 class="file-title" id="save-entry-name"></h1>
       <p class="lede-left">${fileTypeLabel(detectedType)} · ${formatBytes(entry.size)}</p>
       ${previewFailed ? '<p class="lede-left note">Preview unavailable.</p>' : ''}

@@ -3,7 +3,7 @@ import { fileTypeLabel } from '../src/file-type.js'
 
 describe('fileTypeLabel', () => {
   it.each([
-    ['application/pdf', 'PDF document'],
+    ['application/pdf', 'PDF'],
     ['image/jpeg', 'JPEG image'],
     ['image/png', 'PNG image'],
     ['video/mp4', 'MP4 video'],
