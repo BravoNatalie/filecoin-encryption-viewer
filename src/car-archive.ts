@@ -6,20 +6,37 @@ import {
   NotAvailableError,
   RangeUnsupportedError,
   TooLargeError,
+  TooManyEntriesError,
   WrongPasswordError,
 } from './errors.js'
 import { derivePasswordKey, validateKdfMetadata } from './password-key.js'
 import { openRangeSource } from './range-source.js'
-import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC, decodeVarint, layout } from './unixfs-car-layout.js'
+import {
+  CAR_CONTENT_TYPE,
+  DAG_PB_CODEC,
+  LayoutLimitError,
+  RAW_CODEC,
+  decodeVarint,
+  layout,
+} from './unixfs-car-layout.js'
 import type { FileLeaf, FilePlacement, MetadataNode } from './unixfs-car-layout.js'
 
-export { NotAShareError, NotAvailableError, RangeUnsupportedError, TooLargeError, WrongPasswordError }
+export {
+  TooManyEntriesError,
+  NotAShareError,
+  NotAvailableError,
+  RangeUnsupportedError,
+  TooLargeError,
+  WrongPasswordError,
+}
 
 const CID_PATTERN = /^b[a-z2-7]{20,120}$/
 const MAX_ARCHIVE_ENTRIES = 10_000
 const FIRST_WINDOW_BYTES = 256 * 1024
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_BATCH_BYTES = 8 * 1024 * 1024
+// A 64 GiB share is ~65k leaves plus at most 10k entries; this only stops crafted DAGs with exponentially many paths
+const MAX_LAYOUT_VISITS = 1_000_000
 
 export interface ProtectedEntry {
   readonly path: string
@@ -106,9 +123,6 @@ async function buildArchive(reader: Reader): Promise<ProtectedArchive> {
   if (new Set(paths.map((path) => path.split('/')[0])).size !== 1 || paths.some((path) => path.includes('\\'))) {
     throw new NotAShareError()
   }
-  if (paths.length > MAX_ARCHIVE_ENTRIES) {
-    throw new Error(`Protected archive has more than ${MAX_ARCHIVE_ENTRIES} entries`)
-  }
   const entries = [
     ...dirs.map((path) => frozen(`${path}/`, true, 0)),
     ...[...files].map(([path, file]) => frozen(path, false, file.size)),
@@ -142,8 +156,9 @@ async function readLayout(reader: Reader) {
 
   let placed: ReturnType<typeof layout>
   try {
-    placed = layout(root, prefix.nodes)
+    placed = layout(root, prefix.nodes, { maxVisits: MAX_LAYOUT_VISITS, maxEntries: MAX_ARCHIVE_ENTRIES })
   } catch (cause) {
+    if (cause instanceof LayoutLimitError) throw new TooManyEntriesError('Too many entries', { cause })
     throw new NotAShareError({ cause })
   }
   const inOrder =

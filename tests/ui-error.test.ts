@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { NotAShareError, NotAvailableError, TooLargeError, WrongPasswordError } from '../src/errors.js'
+import {
+  NotAShareError,
+  NotAvailableError,
+  TooLargeError,
+  TooManyEntriesError,
+  WrongPasswordError,
+} from '../src/errors.js'
 import { unlockErrorMessage } from '../src/ui.js'
 
 describe('unlockErrorMessage', () => {
@@ -18,6 +24,12 @@ describe('unlockErrorMessage', () => {
   it('maps TooLargeError', () => {
     expect(unlockErrorMessage(new TooLargeError('x'))).toBe(
       'This file is too large to save in this browser. Use `filecoin-pin decrypt` instead.'
+    )
+  })
+
+  it('maps TooManyEntriesError, pointing to the CLI and not to saving', () => {
+    expect(unlockErrorMessage(new TooManyEntriesError('x'))).toBe(
+      'This share has too many files, or folders nested too deeply, to open in the browser. Use `filecoin-pin decrypt`.'
     )
   })
 

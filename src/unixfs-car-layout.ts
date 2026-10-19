@@ -1,4 +1,6 @@
-// ponytail: copied from filecoin-pin src/common/unixfs-car-layout.ts; folds into filecoin-pin in v1
+// ponytail: copied from filecoin-pin src/common/unixfs-car-layout.ts, plus limits in layout(): the `maxVisits` budget,
+// `maxEntries`, 1024-byte names and 4096-byte paths (LayoutLimitError marks the limits a real share can hit).
+// The same fixes belong in filecoin-pin. Folds into filecoin-pin in v1.
 /**
  * Byte layout of the metadata-first UnixFS CAR that `add --encrypt` wraps in the envelope.
  *
@@ -25,6 +27,11 @@ export const DAG_PB_CODEC = 0x70
 
 /** Public `content_type` of the envelope; decryptors reject anything else. */
 export const CAR_CONTENT_TYPE = 'application/vnd.ipld.car'
+
+/** A real share that exceeds a resource limit (too many entries, a path too long), as opposed to a malformed one. */
+export class LayoutLimitError extends Error {
+  override name = 'LayoutLimitError'
+}
 
 export interface MetadataNode {
   cid: CID
@@ -121,15 +128,41 @@ interface DecodedNode {
 
 /** A link name that could escape or alias a path when the tree is written to disk. */
 function isUnsafeName(name: string): boolean {
-  return name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\0')
+  return (
+    name === '' ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('/') ||
+    name.includes('\0') ||
+    byteLength(name) > MAX_NAME_BYTES
+  )
 }
+
+// Filesystems limit names to 255 UTF-16 units (NTFS, HFS+), which is at most 1020 UTF-8 bytes; a CJK name of 200
+// characters is 600. The path limit is what bounds memory.
+const MAX_NAME_BYTES = 1024
+const MAX_PATH_BYTES = 4096
+const utf8 = new TextEncoder()
+const byteLength = (text: string): number => utf8.encode(text).length
 
 /**
  * Compute the block order and byte offsets from the root and the dag-pb nodes alone.
  * Throws when a referenced dag-pb node is missing (the CAR is not metadata-first or is
  * truncated), when a node is not UnixFS, or when a name is unsafe to write to disk.
  */
-export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
+export function layout(
+  root: CID,
+  nodes: Map<string, MetadataNode>,
+  options: { maxVisits?: number; maxEntries?: number } = {}
+): CarLayout {
+  // Every entry, directory, file node and leaf reference counts, so a DAG that links the same child many times
+  // fails here instead of walking billions of paths.
+  let visits = 0
+  const visit = (): void => {
+    if (++visits > (options.maxVisits ?? Number.POSITIVE_INFINITY)) {
+      throw new Error('layout visit budget exceeded')
+    }
+  }
   const decoded = new Map<string, DecodedNode>()
   const node = (cid: CID): DecodedNode => {
     const key = cid.toString()
@@ -183,6 +216,7 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
   const dirSet = new Set<string>()
 
   const leaf = (cid: CID, size: number, path: string, fileOffset: number): void => {
+    visit()
     const key = cid.toString()
     let placement = leafByCid.get(key)
     if (placement == null) {
@@ -198,6 +232,7 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
 
   // Returns the subtree's byte length so the caller can advance the file offset.
   const fileTree = (cid: CID, size: number, path: string, fileOffset: number): number => {
+    visit()
     if (cid.code === RAW_CODEC) {
       leaf(cid, size, path, fileOffset)
       return size
@@ -216,7 +251,15 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
     return offset - fileOffset
   }
 
+  let entryCount = 0
   const entry = (cid: CID, tsize: number, path: string): void => {
+    visit()
+    if (++entryCount > (options.maxEntries ?? Number.POSITIVE_INFINITY)) {
+      throw new LayoutLimitError('too many entries')
+    }
+    if (byteLength(path) > MAX_PATH_BYTES) {
+      throw new LayoutLimitError('path too long')
+    }
     if (files.has(path) || dirSet.has(path)) {
       throw new Error(`duplicate path ${path}`)
     }
@@ -243,6 +286,7 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
 
   // HAMT shards nest: a link named with only the 2-char bucket prefix is a sub-shard of the same directory.
   const shard = (cid: CID, path: string): void => {
+    visit()
     for (const link of node(cid).links) {
       const name = (link.Name ?? '').slice(2)
       if (name === '') {
@@ -257,6 +301,7 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
   }
 
   const dir = (cid: CID, path: string): void => {
+    visit()
     const { links, unixfs } = node(cid)
     if (unixfs == null) {
       throw new Error('dag-pb node without UnixFS data')

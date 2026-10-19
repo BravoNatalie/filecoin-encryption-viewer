@@ -4,6 +4,10 @@ export class NotAvailableError extends Error {
 export class TooLargeError extends Error {
   override name = 'TooLargeError'
 }
+/** A real share with more entries, or deeper paths, than the Viewer will list. */
+export class TooManyEntriesError extends Error {
+  override name = 'TooManyEntriesError'
+}
 export class WrongPasswordError extends Error {
   override name = 'WrongPasswordError'
 }

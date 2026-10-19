@@ -1,6 +1,6 @@
 import type { ProtectedEntry } from './car-archive.js'
 import { clearCardLabel, setCardLabel } from './card-label.js'
-import { NotAShareError, NotAvailableError, TooLargeError, WrongPasswordError } from './errors.js'
+import { NotAShareError, NotAvailableError, TooLargeError, TooManyEntriesError, WrongPasswordError } from './errors.js'
 import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
 import type { SaveResult } from './save.js'
@@ -37,6 +37,9 @@ export function unlockErrorMessage(cause: unknown): string {
   }
   if (cause instanceof TooLargeError) {
     return TOO_LARGE_MESSAGE
+  }
+  if (cause instanceof TooManyEntriesError) {
+    return 'This share has too many files, or folders nested too deeply, to open in the browser. Use `filecoin-pin decrypt`.'
   }
   if (cause instanceof NotAShareError) {
     return "This link doesn't point to a filecoin-pin encrypted share."
