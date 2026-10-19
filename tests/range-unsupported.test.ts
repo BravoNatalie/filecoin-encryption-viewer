@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes } from '../src/format.js'
 import { expectSameBytes } from './fixtures/bytes.js'
+import { stubOpfs } from './fixtures/fake-opfs.js'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
@@ -91,6 +92,27 @@ describe('range ignored by the server', () => {
     expect(click).toHaveBeenCalledOnce()
     const blob = createObjectURL.mock.calls[0][0]
     expectSameBytes(new Uint8Array(await blob.arrayBuffer()), share)
+  })
+
+  it('saves the encrypted file through OPFS when available, with progress', async () => {
+    const share = await makeShare(folder)
+    vi.stubGlobal('fetch', serveRange(share, 'full').fetch)
+    const { files } = stubOpfs()
+    vi.stubGlobal('showSaveFilePicker', undefined)
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:encrypted'), revokeObjectURL: vi.fn() })
+    )
+
+    await openPage()
+    const button = await waitFor(saveButton)
+    button.click()
+    await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
+
+    expect(click).toHaveBeenCalledOnce()
+    const staged = new Uint8Array(await new Blob([...files.values()][0] as BlobPart[]).arrayBuffer())
+    expectSameBytes(staged, share)
   })
 
   it('switches the file view to the state when a file read gets a 200', async () => {

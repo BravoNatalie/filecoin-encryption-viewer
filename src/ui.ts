@@ -344,10 +344,15 @@ export function addBackButton(container: HTMLElement, onBack: () => void): void 
   container.prepend(button)
 }
 
+// Staging only starts the download once the whole file is written, so show how far along it is
+function progressText(verb: string, written: number, size: number | undefined): string {
+  return size ? `${verb}… ${Math.min(100, Math.floor((written / size) * 100))}%` : `${verb}… ${formatBytes(written)}`
+}
+
 export function showSaveEntry(
   container: HTMLElement,
   entry: ProtectedEntry,
-  onSave: () => Promise<'saved'>,
+  onSave: (onProgress: (written: number) => void) => Promise<'saved'>,
   previewFailed = false,
   detectedType: string | undefined = undefined
 ): void {
@@ -377,9 +382,12 @@ export function showSaveEntry(
     error.hidden = true
     status.textContent = ''
     try {
-      await onSave()
+      await onSave((written) => {
+        status.textContent = progressText('Decrypting', written, entry.size)
+      })
       status.textContent = 'Saved.'
     } catch (cause) {
+      status.textContent = ''
       error.textContent = cause instanceof TooLargeError ? TOO_LARGE_MESSAGE : 'This file could not be saved.'
       error.hidden = false
     } finally {
@@ -396,7 +404,7 @@ export function showSaveEntry(
 export function showRangeUnsupported(
   container: HTMLElement,
   size: number | undefined,
-  onSave: () => Promise<'saved'>
+  onSave: (onProgress: (written: number) => void) => Promise<'saved'>
 ): void {
   const label = size ? `Download encrypted file (${formatBytes(size)})` : 'Download encrypted file'
   setCardLabel('Encrypted share')
@@ -421,9 +429,12 @@ export function showRangeUnsupported(
     error.hidden = true
     status.textContent = ''
     try {
-      await onSave()
+      await onSave((written) => {
+        status.textContent = progressText('Downloading', written, size)
+      })
       status.textContent = 'Saved.'
     } catch (cause) {
+      status.textContent = ''
       error.textContent =
         cause instanceof TooLargeError
           ? 'This file is too large to save in this browser. Use `filecoin-pin` to fetch it instead.'

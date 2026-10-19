@@ -1,7 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { openProtectedArchive } from '../src/car-archive.js'
 import { TooLargeError } from '../src/errors.js'
-import { buildArchiveZip, summarizeArchive, zipFileName } from '../src/zip.js'
+import { saveEntry } from '../src/save.js'
+import { archiveZip, summarizeArchive, zipFileName } from '../src/zip.js'
+import { stubDownload, stubOpfs } from './fixtures/fake-opfs.js'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
@@ -50,7 +52,9 @@ it('zips an open archive with full entry paths, directories and exact bytes', as
   expect(zipFileName(archive)).toBe('sample.zip')
 
   const progress: number[] = []
-  const zip = new Uint8Array(await (await buildArchiveZip(archive, (done) => progress.push(done))).arrayBuffer())
+  const zip = new Uint8Array(
+    await new Response(await archiveZip(archive, (done) => progress.push(done)).open()).arrayBuffer()
+  )
   const entries = readZip(zip)
 
   expect(entries.map((entry) => entry.name).sort()).toEqual([
@@ -65,15 +69,41 @@ it('zips an open archive with full entry paths, directories and exact bytes', as
   expect(progress).toEqual([1, 2])
 })
 
-it('refuses to zip more than the in-memory cap', async () => {
-  const share = await makeShare([{ path: 'sample/note.txt', content: text('hello zip') }])
-  const archive = await openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
+async function openSample() {
+  const share = await makeShare([
+    { path: 'sample/note.txt', content: text('hello zip') },
+    { path: 'sample/docs/report.txt', content: text('nested report') },
+  ])
+  return openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
+}
+
+it('refuses to zip more than the in-memory cap when it can only use the Blob', async () => {
+  const archive = await openSample()
+  stubDownload()
   vi.stubGlobal('navigator', { userAgentData: { mobile: true } })
   const big = {
     ...archive,
     list: () => [{ path: 'sample/big.bin', directory: false, size: 300 * 1024 * 1024, contentType: '' }],
   }
-  expect(() => buildArchiveZip(big)).toThrow(TooLargeError)
+  await expect(saveEntry(archiveZip(big), 'big.zip')).rejects.toBeInstanceOf(TooLargeError)
+})
+
+it('streams Download all into OPFS when available, with no cap', async () => {
+  const archive = await openSample()
+  const { files } = stubOpfs()
+  const { link } = stubDownload()
+  vi.stubGlobal('navigator', { ...navigator, userAgentData: { mobile: true }, storage: navigator.storage })
+  const big = { ...archive, list: () => [...archive.list()] }
+
+  await saveEntry(archiveZip(big), zipFileName(archive))
+
+  expect(link.download).toBe('sample.zip')
+  const staged = new Uint8Array(await new Blob([...files.values()][0] as BlobPart[]).arrayBuffer())
+  expect(
+    readZip(staged)
+      .map((entry) => entry.name)
+      .sort()
+  ).toEqual(['sample/', 'sample/docs/', 'sample/docs/report.txt', 'sample/note.txt'])
 })
 
 afterEach(() => vi.unstubAllGlobals())

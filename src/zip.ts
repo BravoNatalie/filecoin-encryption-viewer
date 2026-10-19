@@ -1,7 +1,6 @@
 import { downloadZip } from 'client-zip'
 import type { ProtectedArchive } from './car-archive.js'
-import { TooLargeError } from './errors.js'
-import { saveFallbackCap } from './save.js'
+import type { SaveableEntry } from './save.js'
 
 /** File count and total size of the files in an open archive (directories excluded). */
 export function summarizeArchive(archive: ProtectedArchive): { files: number; bytes: number } {
@@ -16,12 +15,14 @@ export function zipFileName(archive: ProtectedArchive): string {
 }
 
 /**
- * Zips the open archive (names are the full entry paths, directories included), reading each file
- * lazily, one at a time. The zip is built in memory, so it has the same cap as the save fallback.
+ * The zip of the open archive as a saveable entry (names are the full entry paths, directories included). Files are
+ * read lazily, one at a time, and the zip streams out as it is built. `size` is the files' total, a close estimate.
  */
-export function buildArchiveZip(archive: ProtectedArchive, onProgress?: (done: number, total: number) => void) {
+export function archiveZip(
+  archive: ProtectedArchive,
+  onProgress?: (done: number, total: number) => void
+): SaveableEntry {
   const { files: total, bytes } = summarizeArchive(archive)
-  if (bytes > saveFallbackCap()) throw new TooLargeError('These files are too large to zip in this browser')
   async function* entries() {
     let done = 0
     for (const entry of archive.list()) {
@@ -33,5 +34,13 @@ export function buildArchiveZip(archive: ProtectedArchive, onProgress?: (done: n
       onProgress?.(++done, total)
     }
   }
-  return downloadZip(entries()).blob()
+  return {
+    size: bytes,
+    contentType: 'application/zip',
+    open: async () => {
+      const { body } = downloadZip(entries())
+      if (!body) throw new Error('The zip has no body')
+      return body
+    },
+  }
 }

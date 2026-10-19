@@ -30,3 +30,17 @@ it('keeps "Preview unavailable" as a note, not the heading', () => {
   expect(container.textContent).toContain('Unknown file type · 12 MB')
   expect(container.querySelector('#save-entry')?.textContent).toBe('Download instead')
 })
+
+it('shows progress while saving, as a percentage of the known size', async () => {
+  const container = document.createElement('div')
+  let seen = ''
+  showSaveEntry(container, entry, async (onProgress) => {
+    onProgress(entry.size / 2)
+    seen = container.querySelector('#save-status')?.textContent ?? ''
+    return 'saved'
+  })
+  ;(container.querySelector('#save-entry') as HTMLButtonElement).click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(seen).toBe('Decrypting… 50%')
+  expect(container.querySelector('#save-status')?.textContent).toBe('Saved.')
+})

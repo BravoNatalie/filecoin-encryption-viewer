@@ -3,6 +3,7 @@ import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
 import { RangeUnsupportedError } from './errors.js'
 import { parseFragment } from './fragment.js'
+import { removeStagedFiles } from './opfs-save.js'
 import {
   detectContentType,
   isBinaryPreviewType,
@@ -10,7 +11,7 @@ import {
   revokePdfObjectUrls,
   revokeRenderedObjectUrls,
 } from './render.js'
-import { saveEntry } from './save.js'
+import { revokeStagedUrl, saveEntry } from './save.js'
 import {
   addBackButton,
   showAccessKeyPrompt,
@@ -19,7 +20,7 @@ import {
   showRangeUnsupported,
   showSaveEntry,
 } from './ui.js'
-import { buildArchiveZip, zipFileName } from './zip.js'
+import { archiveZip, zipFileName } from './zip.js'
 
 function getContainer(): HTMLElement {
   const element = document.getElementById('app')
@@ -61,14 +62,15 @@ async function openAndRender(archive: ProtectedArchive, entry: ProtectedEntry, c
     showSaveEntry(
       container,
       entry,
-      async () => {
+      async (onProgress) => {
         const result = await saveEntry(
           {
             size: entry.size,
             contentType: entry.contentType,
             open: () => archive.open(entry.path),
           },
-          entry.path.split('/').at(-1) ?? 'decrypted-content'
+          entry.path.split('/').at(-1) ?? 'decrypted-content',
+          onProgress
         )
         if (result === 'saved' && closeAfterOpen) await closeArchive(archive)
         return result
@@ -86,7 +88,7 @@ async function openAndRender(archive: ProtectedArchive, entry: ProtectedEntry, c
 function showRangeIgnored(response: Response): void {
   const length = Number(response.headers.get('content-length'))
   const size = length > 0 ? length : undefined
-  showRangeUnsupported(container, size, () =>
+  showRangeUnsupported(container, size, (onProgress) =>
     saveEntry(
       {
         size: size ?? 0,
@@ -96,7 +98,8 @@ function showRangeIgnored(response: Response): void {
           return response.body
         },
       },
-      'encrypted.fee'
+      'encrypted.fee',
+      onProgress
     )
   )
 }
@@ -127,17 +130,12 @@ function showTree(archive: ProtectedArchive): void {
   )
 }
 
-// Zips the open archive in memory and hands it to the browser as a normal download.
+// Zips the open archive straight into the save (picker, OPFS or, as a last resort, memory).
 async function downloadAll(
   archive: ProtectedArchive,
   onProgress: (done: number, total: number) => void
 ): Promise<void> {
-  const url = URL.createObjectURL(await buildArchiveZip(archive, onProgress))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = zipFileName(archive)
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  await saveEntry(archiveZip(archive, onProgress), zipFileName(archive))
 }
 
 // Dev only (stripped from production builds, see scripts/check-dist.mjs): serve a local share.
@@ -220,8 +218,12 @@ window.addEventListener(
     activeArchive = undefined
     void archive?.close()
     revokePdfObjectUrls()
+    revokeStagedUrl()
+    void removeStagedFiles()
   },
   { once: true }
 )
 
+// A save staged by an earlier page is only deleted by a later save, startup or pagehide, see opfs-save.ts
+void removeStagedFiles()
 init()
