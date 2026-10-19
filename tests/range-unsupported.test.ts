@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes } from '../src/format.js'
+import { expectSameBytes } from './fixtures/bytes.js'
 import { PASSWORD, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
@@ -70,7 +71,7 @@ describe('range ignored by the server', () => {
     button.click()
     await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
     expect(picker).toHaveBeenCalledWith({ suggestedName: 'encrypted.fee' })
-    expect(new Uint8Array(written)).toEqual(share)
+    expectSameBytes(new Uint8Array(written), share)
   })
 
   it('omits the size without a Content-Length, and saves the body byte-identical through the Blob fallback', async () => {
@@ -89,7 +90,7 @@ describe('range ignored by the server', () => {
     await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
     expect(click).toHaveBeenCalledOnce()
     const blob = createObjectURL.mock.calls[0][0]
-    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(share)
+    expectSameBytes(new Uint8Array(await blob.arrayBuffer()), share)
   })
 
   it('switches the file view to the state when a file read gets a 200', async () => {
@@ -113,6 +114,6 @@ describe('range ignored by the server', () => {
 
     button.click()
     await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
-    expect(new Uint8Array(written)).toEqual(share)
+    expectSameBytes(new Uint8Array(written), share)
   })
 })

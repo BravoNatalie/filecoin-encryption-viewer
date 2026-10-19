@@ -13,6 +13,7 @@ import {
 } from '../src/car-archive.js'
 import type { ProtectedArchive } from '../src/car-archive.js'
 import { encodeVarint } from '../src/unixfs-car-layout.js'
+import { expectSameBytes } from './fixtures/bytes.js'
 import { PASSWORD, encryptCar, makeShare } from './fixtures/make-share.js'
 import type { ShareFile } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
@@ -81,7 +82,7 @@ describe('openProtectedArchive', () => {
 
   it('reads a multi-chunk, multi-leaf file', async () => {
     const { archive } = await open(await makeShare(bigFolder))
-    expect(await readAll(await archive.open('big/data.bin'))).toEqual(big)
+    expectSameBytes(await readAll(await archive.open('big/data.bin')), big)
   })
 
   it('restores a repeated chunk byte-identical', async () => {
@@ -91,7 +92,7 @@ describe('openProtectedArchive', () => {
     content.set(pattern(MIB, 2), MIB)
     content.set(first, 2 * MIB)
     const { archive } = await open(await makeShare([{ path: 'repeat.bin', content }]))
-    expect(await readAll(await archive.open('repeat.bin'))).toEqual(content)
+    expectSameBytes(await readAll(await archive.open('repeat.bin')), content)
   })
 
   it('reads metadata that is larger than the first window', async () => {
@@ -101,7 +102,7 @@ describe('openProtectedArchive', () => {
     expect(archive.list()).toHaveLength(6001)
     expect(stub.requests.length).toBeGreaterThan(1)
     expect(await readAll(await archive.open('many/f5999'))).toEqual(bytes('n5999'))
-  }, 60_000)
+  }, 30_000) // builds a 6000-entry share; real work, not assertion time
 
   it('works at the real 600000 iterations', async () => {
     const { archive } = await open(await makeShare([{ path: 'a.txt', content: bytes('x') }], { iterations: 600_000 }))
@@ -130,7 +131,7 @@ describe('range reads', () => {
     expect(requested(stub, afterOpen)).toBeLessThan(MIB / 2)
 
     const beforeBig = stub.requests.length
-    expect(await readAll(await archive.open('mix/big.bin'))).toEqual(big)
+    expectSameBytes(await readAll(await archive.open('mix/big.bin')), big)
     // the first 320 KiB of the share are already in the cached head
     expect(requested(stub, beforeBig)).toBeGreaterThanOrEqual(big.length - 320 * 1024)
   })
@@ -154,16 +155,16 @@ describe('range reads', () => {
     expect(data).toHaveLength(1)
     // One 8 MiB batch, widened to whole 256 KiB encryption chunks (the first leaf starts mid-chunk)
     expect(data[0].length).toBeLessThanOrEqual(8 * MIB + 2 * 256 * 1024)
-  }, 60_000)
+  })
 
   it('restores a file over 8 MiB in batches of at most 8 MiB', async () => {
     const huge = pattern(10 * MIB, 3)
     const { archive, stub } = await open(await makeShare([{ path: 'huge.bin', content: huge }]))
     const before = stub.requests.length
-    expect(await readAll(await archive.open('huge.bin'))).toEqual(huge)
+    expectSameBytes(await readAll(await archive.open('huge.bin')), huge)
     const data = stub.requests.slice(before)
     expect(data).toHaveLength(Math.ceil(huge.length / (8 * MIB)))
-  }, 60_000)
+  })
 
   it('never requests a range that starts at byte 0, and the head request starts at byte 1', async () => {
     const stub = serveRange(await makeShare(mixed))
@@ -173,7 +174,7 @@ describe('range reads', () => {
       return stub.fetch(input, init)
     }) as typeof fetch
     const archive = await openProtectedArchive(CID_STRING, PASSWORD, fetchFn)
-    expect(await readAll(await archive.open('mix/big.bin'))).toEqual(big)
+    expectSameBytes(await readAll(await archive.open('mix/big.bin')), big)
     expect(await readAll(await archive.open('mix/small.txt'))).toEqual(bytes('small file'))
 
     expect(ranges[0]).toBe(`bytes=1-${320 * 1024 - 1}`)
@@ -252,7 +253,7 @@ describe('what is accepted', () => {
     const spy = vi.spyOn(crypto.subtle, 'deriveBits')
     await expect(open(share)).rejects.toBeInstanceOf(NotAShareError)
     expect(spy).not.toHaveBeenCalled()
-  })
+  }, 30_000) // makeShare really derives a key at 10M iterations
 
   it('rejects foreign appMetadata', async () => {
     await expect(open(await makeShare(folder, { appMetadata: { app: 'other' } }))).rejects.toBeInstanceOf(
@@ -318,7 +319,7 @@ describe('when the server does not serve ranges', () => {
     const error = await open(share, 'full').catch((cause) => cause)
     expect(error).toBeInstanceOf(RangeUnsupportedError)
     expect(spy).not.toHaveBeenCalled()
-    expect(new Uint8Array(await error.response.arrayBuffer())).toEqual(share)
+    expectSameBytes(new Uint8Array(await error.response.arrayBuffer()), share)
   })
 
   it('turns a 200 during a file read into RangeUnsupportedError, not a wrong password', async () => {
@@ -327,7 +328,7 @@ describe('when the server does not serve ranges', () => {
     stub.mode = 'full'
     const error = await readAll(await archive.open('big/data.bin')).catch((cause) => cause)
     expect(error).toBeInstanceOf(RangeUnsupportedError)
-    expect(new Uint8Array(await error.response.arrayBuffer())).toEqual(share)
+    expectSameBytes(new Uint8Array(await error.response.arrayBuffer()), share)
   })
 
   it.each([404, 502, 504])('maps %i to NotAvailableError', async (status) => {
