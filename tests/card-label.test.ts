@@ -2,6 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { ProtectedEntry } from '../src/car-archive.js'
 import { renderContent } from '../src/render.js'
+import type { SaveResult } from '../src/save.js'
 import { showAccessKeyPrompt, showMissingLink, showProtectedArchive, showSaveEntry } from '../src/ui.js'
 
 const entries: ProtectedEntry[] = [
@@ -23,7 +24,7 @@ it('shows the label as the page h1 on tree and file screens, and not on the prom
     entries,
     async () => {},
     new Map(),
-    async () => {}
+    async () => 'saved'
   )
   expect(label().querySelector('h1')?.textContent).toBe('Encrypted share')
   expect(container.classList.contains('label-card')).toBe(true)
@@ -79,9 +80,9 @@ it('shows progress only in the status line while building', async () => {
     async () => {},
     new Map(),
     (onProgress) =>
-      new Promise<void>((resolve) => {
+      new Promise<SaveResult>((resolve) => {
         onProgress(1, 2)
-        release = resolve
+        release = () => resolve('saved')
       })
   )
   const button = container.querySelector('#download-all') as HTMLButtonElement

@@ -3,7 +3,7 @@ import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
 import { RangeUnsupportedError } from './errors.js'
 import { parseFragment } from './fragment.js'
-import { removeStagedFiles } from './opfs-save.js'
+import { removeOwnStagedFiles, removeStagedFiles } from './opfs-save.js'
 import {
   detectContentType,
   isBinaryPreviewType,
@@ -12,6 +12,7 @@ import {
   revokeRenderedObjectUrls,
 } from './render.js'
 import { revokeStagedUrl, saveEntry } from './save.js'
+import type { SaveResult } from './save.js'
 import {
   addBackButton,
   showAccessKeyPrompt,
@@ -63,14 +64,16 @@ async function openAndRender(archive: ProtectedArchive, entry: ProtectedEntry, c
       container,
       entry,
       async (onProgress) => {
-        const result = await saveEntry(
-          {
-            size: entry.size,
-            contentType: entry.contentType,
-            open: () => archive.open(entry.path),
-          },
-          entry.path.split('/').at(-1) ?? 'decrypted-content',
-          onProgress
+        const result = await orRangeIgnored(
+          saveEntry(
+            {
+              size: entry.size,
+              contentType: entry.contentType,
+              open: () => archive.open(entry.path),
+            },
+            entry.path.split('/').at(-1) ?? 'decrypted-content',
+            onProgress
+          )
         )
         if (result === 'saved' && closeAfterOpen) await closeArchive(archive)
         return result
@@ -84,8 +87,20 @@ async function openAndRender(archive: ProtectedArchive, entry: ProtectedEntry, c
   }
 }
 
+// A 200 can also arrive while saving (a file or Download all): show the same screen instead of a save error
+async function orRangeIgnored(save: Promise<SaveResult>): Promise<SaveResult> {
+  try {
+    return await save
+  } catch (error) {
+    if (!(error instanceof RangeUnsupportedError)) throw error
+    showRangeIgnored(error.response)
+    return 'cancelled'
+  }
+}
+
 // The server answered a Range request with the whole encrypted file: offer the body already in flight as encrypted.fee.
 function showRangeIgnored(response: Response): void {
+  const archive = activeArchive
   const length = Number(response.headers.get('content-length'))
   const size = length > 0 ? length : undefined
   showRangeUnsupported(container, size, (onProgress) =>
@@ -102,6 +117,8 @@ function showRangeIgnored(response: Response): void {
       onProgress
     )
   )
+  // Reached from inside a folder share: the tree is still there to go back to
+  if (archive) addBackButton(container, () => showTree(archive))
 }
 
 // Folder shares keep the archive open: every file view gets a way back to the tree, with no new fetch.
@@ -134,8 +151,8 @@ function showTree(archive: ProtectedArchive): void {
 async function downloadAll(
   archive: ProtectedArchive,
   onProgress: (done: number, total: number) => void
-): Promise<void> {
-  await saveEntry(archiveZip(archive, onProgress), zipFileName(archive))
+): Promise<SaveResult> {
+  return orRangeIgnored(saveEntry(archiveZip(archive, onProgress), zipFileName(archive)))
 }
 
 // Dev only (stripped from production builds, see scripts/check-dist.mjs): serve a local share.
@@ -219,7 +236,7 @@ window.addEventListener(
     void archive?.close()
     revokePdfObjectUrls()
     revokeStagedUrl()
-    void removeStagedFiles()
+    void removeOwnStagedFiles()
   },
   { once: true }
 )

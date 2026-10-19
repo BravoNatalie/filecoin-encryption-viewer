@@ -341,6 +341,15 @@ describe('when the server does not serve ranges', () => {
     await expect(readAll(await archive.open('big/data.bin'))).rejects.toBeInstanceOf(NotAvailableError)
   })
 
+  // 206 without a Content-Range is an invalid range response
+  it.each([404, 502, 500, 206])('cancels the body of a thrown-away %i response', async (status) => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const fetchFn = (async () => new Response(body, { status })) as typeof fetch
+    await expect(openProtectedArchive(CID_STRING, PASSWORD, fetchFn)).rejects.toThrow()
+    expect(cancel).toHaveBeenCalled()
+  })
+
   it('maps a rejected fetch to NotAvailableError', async () => {
     const fetchFn = (async () => {
       throw new TypeError('network')

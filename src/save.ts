@@ -31,12 +31,22 @@ export function saveFallbackCap(): number {
   return mobile ? SAVE_CAP_MOBILE : SAVE_CAP_DESKTOP
 }
 
-let stagedUrl: string | undefined
+/** `cancelled`: the user dismissed the save picker. */
+export type SaveResult = 'saved' | 'cancelled'
 
-/** Revokes the object URL of the last staged file; it outlives the click because the browser copies it lazily. */
+// Overlapping saves in one tab each add a URL; all are revoked at the next save's start or on pagehide
+const saveUrls = new Set<string>()
+
+/** Revokes the object URLs of earlier saves; they outlive the click because the browser copies the file lazily. */
 export function revokeStagedUrl(): void {
-  if (stagedUrl) URL.revokeObjectURL(stagedUrl)
-  stagedUrl = undefined
+  for (const url of saveUrls) URL.revokeObjectURL(url)
+  saveUrls.clear()
+}
+
+function downloadUrl(blob: Blob, suggestedName: string): void {
+  const url = URL.createObjectURL(blob)
+  saveUrls.add(url)
+  clickDownload(url, suggestedName)
 }
 
 /**
@@ -47,22 +57,28 @@ export async function saveEntry(
   entry: SaveableEntry,
   suggestedName: string,
   onProgress?: (written: number) => void
-): Promise<'saved'> {
+): Promise<SaveResult> {
   const picker = (globalThis as typeof globalThis & SavePickerHost).showSaveFilePicker
   if (picker) {
-    const handle = await picker({ suggestedName })
+    let handle: SaveFileHandle
+    try {
+      handle = await picker({ suggestedName })
+    } catch (error) {
+      // Dismissing the picker rejects with AbortError; that is a choice, not a failure
+      if ((error as { name?: string } | undefined)?.name === 'AbortError') return 'cancelled'
+      throw error
+    }
     await (await entry.open()).pipeTo(await handle.createWritable())
     return 'saved'
   }
 
+  revokeStagedUrl() // only URLs of saves that started earlier exist yet
   const root = await openOpfsRoot()
   if (root) {
-    revokeStagedUrl()
     await removeStagedFiles(root)
     try {
       const file = await stageStream(root, await entry.open(), onProgress)
-      stagedUrl = URL.createObjectURL(file)
-      clickDownload(stagedUrl, suggestedName)
+      downloadUrl(file, suggestedName)
       return 'saved'
     } catch (error) {
       // A storage failure (quota, disk) falls through to the Blob path below; anything else is the caller's
@@ -73,13 +89,10 @@ export async function saveEntry(
   const cap = saveFallbackCap()
   if (entry.size > cap) throw new TooLargeError('This file is too large to save in this browser')
   const parts = await readParts(await entry.open(), cap)
-  // octet-stream: a typed blob (html, svg) opened from the download link would run its scripts on this origin
-  const objectUrl = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/octet-stream' }))
-  try {
-    clickDownload(objectUrl, suggestedName)
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
+  // octet-stream: a typed blob (html, svg) opened from the download link would run its scripts on this origin.
+  // Revoked at the next save or pagehide, not right after the click: some Safari versions fail a download whose URL
+  // was revoked at once.
+  downloadUrl(new Blob(parts as BlobPart[], { type: 'application/octet-stream' }), suggestedName)
   return 'saved'
 }
 

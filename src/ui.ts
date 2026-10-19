@@ -3,6 +3,7 @@ import { clearCardLabel, setCardLabel } from './card-label.js'
 import { NotAShareError, NotAvailableError, TooLargeError, WrongPasswordError } from './errors.js'
 import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
+import type { SaveResult } from './save.js'
 
 const HERO_URL = new URL('../assets/secure-sharing-hero.webp', import.meta.url).href
 
@@ -256,7 +257,7 @@ export function showProtectedArchive(
   entries: readonly ProtectedEntry[],
   onSelect: (entry: ProtectedEntry) => Promise<void>,
   folderState: Map<string, boolean> = new Map(),
-  onDownloadAll?: (onProgress: (done: number, total: number) => void) => Promise<void>
+  onDownloadAll?: (onProgress: (done: number, total: number) => void) => Promise<SaveResult>
 ): void {
   setCardLabel('Encrypted share')
   container.classList.add('tree-card')
@@ -305,7 +306,7 @@ function treeHeaderMarkup(entries: readonly ProtectedEntry[], withDownloadAll: b
 
 function wireDownloadAll(
   container: HTMLElement,
-  onDownloadAll: (onProgress: (done: number, total: number) => void) => Promise<void>
+  onDownloadAll: (onProgress: (done: number, total: number) => void) => Promise<SaveResult>
 ): void {
   const button = container.querySelector('#download-all') as HTMLButtonElement | null
   const status = container.querySelector('#zip-status') as HTMLParagraphElement | null
@@ -317,10 +318,10 @@ function wireDownloadAll(
     label.textContent = 'Preparing…'
     status.textContent = ''
     try {
-      await onDownloadAll((done, total) => {
+      const result = await onDownloadAll((done, total) => {
         status.textContent = `Adding files: ${done} of ${total}`
       })
-      status.textContent = 'Zip ready.'
+      status.textContent = result === 'cancelled' ? '' : 'Zip ready.'
     } catch (cause) {
       status.textContent =
         cause instanceof TooLargeError
@@ -352,7 +353,7 @@ function progressText(verb: string, written: number, size: number | undefined): 
 export function showSaveEntry(
   container: HTMLElement,
   entry: ProtectedEntry,
-  onSave: (onProgress: (written: number) => void) => Promise<'saved'>,
+  onSave: (onProgress: (written: number) => void) => Promise<SaveResult>,
   previewFailed = false,
   detectedType: string | undefined = undefined
 ): void {
@@ -382,10 +383,10 @@ export function showSaveEntry(
     error.hidden = true
     status.textContent = ''
     try {
-      await onSave((written) => {
+      const result = await onSave((written) => {
         status.textContent = progressText('Decrypting', written, entry.size)
       })
-      status.textContent = 'Saved.'
+      status.textContent = result === 'saved' ? 'Saved.' : ''
     } catch (cause) {
       status.textContent = ''
       error.textContent = cause instanceof TooLargeError ? TOO_LARGE_MESSAGE : 'This file could not be saved.'
@@ -404,7 +405,7 @@ export function showSaveEntry(
 export function showRangeUnsupported(
   container: HTMLElement,
   size: number | undefined,
-  onSave: (onProgress: (written: number) => void) => Promise<'saved'>
+  onSave: (onProgress: (written: number) => void) => Promise<SaveResult>
 ): void {
   const label = size ? `Download encrypted file (${formatBytes(size)})` : 'Download encrypted file'
   setCardLabel('Encrypted share')
@@ -429,10 +430,10 @@ export function showRangeUnsupported(
     error.hidden = true
     status.textContent = ''
     try {
-      await onSave((written) => {
+      const result = await onSave((written) => {
         status.textContent = progressText('Downloading', written, size)
       })
-      status.textContent = 'Saved.'
+      status.textContent = result === 'saved' ? 'Saved.' : ''
     } catch (cause) {
       status.textContent = ''
       error.textContent =

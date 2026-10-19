@@ -44,3 +44,15 @@ it('shows progress while saving, as a percentage of the known size', async () =>
   expect(seen).toBe('Decrypting… 50%')
   expect(container.querySelector('#save-status')?.textContent).toBe('Saved.')
 })
+
+it('resets quietly, with no error, when the save is cancelled', async () => {
+  const container = document.createElement('div')
+  showSaveEntry(container, entry, async () => 'cancelled')
+  const button = container.querySelector('#save-entry') as HTMLButtonElement
+  button.click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect((container.querySelector('#save-error') as HTMLElement).hidden).toBe(true)
+  expect(container.querySelector('#save-status')?.textContent).toBe('')
+  expect(button.disabled).toBe(false)
+  expect(button.textContent).toBe('Download file')
+})

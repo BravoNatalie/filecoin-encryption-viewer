@@ -43,20 +43,77 @@ export function exactBytes(chunk: Uint8Array): Uint8Array {
   return chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength ? chunk : chunk.slice()
 }
 
+// Staged files this tab created. Each holds a Web Lock named after the file from creation until this tab deletes it,
+// so other tabs (whose startup sweep and next-save cleanup list the directory) can tell it is in use.
+const ownFiles = new Map<string, { release: () => void; done: boolean }>()
+
+async function holdLock(name: string): Promise<void> {
+  const locks = globalThis.navigator?.locks
+  if (!locks) {
+    ownFiles.set(name, { release: () => undefined, done: false })
+    return
+  }
+  await new Promise<void>((held) => {
+    locks
+      .request(name, () => {
+        return new Promise<void>((release) => {
+          ownFiles.set(name, { release: () => release(), done: false })
+          held()
+        })
+      })
+      .catch(() => {
+        // Web Locks refused (storage-blocked or sandboxed context): carry on as if there were none
+        if (!ownFiles.has(name)) ownFiles.set(name, { release: () => undefined, done: false })
+        held()
+      })
+  })
+}
+
+async function removeOwn(dir: OpfsDirectory, name: string): Promise<void> {
+  ownFiles.get(name)?.release()
+  ownFiles.delete(name)
+  await dir.removeEntry(name).catch(() => undefined)
+}
+
 /**
- * Deletes every staged file. Best effort and silent.
- * ponytail: the file of the last save stays until the next save, the next startup, or pagehide, because the page
- * can't observe when the browser has finished copying the download. Upgrade: delete when the download is done.
+ * Deletes staged files that are not in use. Best effort and silent. Always: this tab's own finished files (release
+ * the lock, then delete). With Web Locks also: files nobody holds a lock on, left by closed tabs. Without Web Locks
+ * other tabs' files are never touched, because there is no way to tell they are in use.
+ * ponytail: a finished save's file stays until the next save, the next startup, or pagehide, because the page can't
+ * observe when the browser has finished copying the download. Upgrade: delete when the download is done.
  */
 export async function removeStagedFiles(root?: OpfsDirectory): Promise<void> {
   try {
     const dir = root ?? (await openOpfsRoot())
     if (!dir) return
+    for (const [name, file] of [...ownFiles]) if (file.done) await removeOwn(dir, name)
+
+    const locks = globalThis.navigator?.locks
+    if (!locks) return
+    // List first, then query: a file created after the listing is not deleted, and one listed has its lock held
+    // (the lock is taken before the file exists), so it shows up in the query.
     const names: string[] = []
     for await (const name of dir.keys()) if (name.startsWith(PREFIX)) names.push(name)
-    await Promise.all(names.map((name) => dir.removeEntry(name).catch(() => undefined)))
+    const { held = [], pending = [] } = await locks.query()
+    const inUse = new Set([...held, ...pending].map((lock) => lock.name))
+    await Promise.all(
+      names
+        .filter((name) => !inUse.has(name) && !ownFiles.has(name))
+        .map((name) => dir.removeEntry(name).catch(() => undefined))
+    )
   } catch {
     // nothing to clean up, or the browser refused
+  }
+}
+
+/** pagehide: this tab is going away, so delete everything it staged, finished or not. Best effort. */
+export async function removeOwnStagedFiles(): Promise<void> {
+  try {
+    const dir = await openOpfsRoot()
+    if (!dir) return
+    await Promise.all([...ownFiles.keys()].map((name) => removeOwn(dir, name)))
+  } catch {
+    // the page is closing anyway
   }
 }
 
@@ -81,6 +138,7 @@ export async function stageStream(
   const reader = stream.getReader()
   let writable: OpfsWritable | undefined
   try {
+    await holdLock(name)
     const handle = await storage(() => root.getFileHandle(name, { create: true }))
     writable = await storage(() => handle.createWritable())
     const target = writable
@@ -93,11 +151,14 @@ export async function stageStream(
       onProgress?.(written)
     }
     await storage(() => target.close())
-    return await storage(() => handle.getFile())
+    const file = await storage(() => handle.getFile())
+    const own = ownFiles.get(name)
+    if (own) own.done = true
+    return file
   } catch (error) {
     await reader.cancel().catch(() => undefined)
     await writable?.abort?.().catch(() => undefined)
-    await root.removeEntry(name).catch(() => undefined)
+    await removeOwn(root, name)
     throw error
   }
 }

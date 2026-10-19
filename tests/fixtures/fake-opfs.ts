@@ -9,6 +9,10 @@ export interface FakeOpfsOptions {
   throwOnGetDirectory?: boolean
   // FileSystemFileHandle has no createWritable (older browsers)
   noCreateWritable?: boolean
+  // navigator.locks is missing
+  noLocks?: boolean
+  // navigator.locks.request() rejects, like SecurityError in a storage-blocked context
+  rejectLocks?: boolean
 }
 
 /** Stubs navigator.storage and FileSystemFileHandle with an in-memory directory; returns the files by name. */
@@ -50,8 +54,26 @@ export function stubOpfs(options: FakeOpfsOptions = {}) {
     },
   }
 
+  // Web Locks: request() holds the name until the callback's promise settles; query() lists what is held
+  const held = new Set<string>()
+  const locks = {
+    async request(name: string, callback: () => Promise<void>) {
+      if (options.rejectLocks) throw new DOMException('blocked', 'SecurityError')
+      held.add(name)
+      try {
+        await callback()
+      } finally {
+        held.delete(name)
+      }
+    },
+    async query() {
+      return { held: [...held].map((name) => ({ name })), pending: [] }
+    },
+  }
+
   vi.stubGlobal('navigator', {
     userAgentData: { mobile: false },
+    ...(options.noLocks ? {} : { locks }),
     storage: {
       getDirectory: async () => {
         if (options.throwOnGetDirectory) throw new DOMException('private', 'UnknownError')
@@ -67,7 +89,12 @@ export function stubOpfs(options: FakeOpfsOptions = {}) {
           createWritable() {}
         }
   )
-  return { files, removed, getDirectory: (navigator.storage as { getDirectory: () => Promise<unknown> }).getDirectory }
+  return {
+    files,
+    removed,
+    held,
+    getDirectory: (navigator.storage as { getDirectory: () => Promise<unknown> }).getDirectory,
+  }
 }
 
 /** Stubs the anchor click and object URLs of the download; returns what was downloaded. */

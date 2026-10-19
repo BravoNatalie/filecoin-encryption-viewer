@@ -68,6 +68,8 @@ describe('range ignored by the server', () => {
     expect(app().querySelector('h1')?.textContent).toBe("This share can't be opened in the browser")
     expect(button.textContent).toBe(`Download encrypted file (${formatBytes(share.length)})`)
     expect(app().querySelector('code')?.textContent).toBe(COMMAND)
+    // no archive yet on the first request: nothing to go back to
+    expect(app().querySelector('#back-btn')).toBeNull()
 
     button.click()
     await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
@@ -132,10 +134,55 @@ describe('range ignored by the server', () => {
 
     const button = await waitFor(saveButton)
     expect(app().querySelector('code')?.textContent).toBe(COMMAND)
-    expect(app().querySelector('#back-btn')).toBeNull()
+    // inside a folder share the tree still exists, so there is a way back to it
+    expect(app().querySelector('#back-btn')).not.toBeNull()
 
     button.click()
     await waitFor(() => app().querySelector('#save-status')?.textContent === 'Saved.')
     expectSameBytes(new Uint8Array(written), share)
+  })
+
+  it('switches to the screen when a 200 arrives while saving a large file', async () => {
+    const huge = {
+      path: 'docs/huge.bin',
+      content: new Uint8Array(9 * 1024 * 1024).map((_, index) => (index * 31) % 251),
+    }
+    const share = await makeShare([huge, folder[1]])
+    const stub = serveRange(share)
+    vi.stubGlobal('fetch', stub.fetch)
+    vi.stubGlobal('showSaveFilePicker', undefined)
+
+    await openPage()
+    const file = await waitFor(() =>
+      Array.from(app().querySelectorAll<HTMLButtonElement>('button.tree-file')).find((b) =>
+        b.textContent?.includes('huge.bin')
+      )
+    )
+    file.click()
+    const save = await waitFor(() => app().querySelector<HTMLButtonElement>('#save-entry'))
+    stub.mode = 'full'
+    save.click()
+
+    await waitFor(saveButton)
+    expect(app().querySelector('h1')?.textContent).toBe("This share can't be opened in the browser")
+
+    // "← All files" returns to the tree
+    app().querySelector<HTMLButtonElement>('#back-btn')?.click()
+    await waitFor(() => app().querySelector('#archive-tree'))
+  })
+
+  it('switches to the screen when a 200 arrives during Download all', async () => {
+    const share = await makeShare(folder)
+    const stub = serveRange(share)
+    vi.stubGlobal('fetch', stub.fetch)
+    vi.stubGlobal('showSaveFilePicker', undefined)
+
+    await openPage()
+    const downloadAll = await waitFor(() => app().querySelector<HTMLButtonElement>('#download-all'))
+    stub.mode = 'full'
+    downloadAll.click()
+
+    await waitFor(saveButton)
+    expect(app().querySelector('h1')?.textContent).toBe("This share can't be opened in the browser")
   })
 })

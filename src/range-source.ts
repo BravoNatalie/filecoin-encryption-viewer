@@ -37,6 +37,7 @@ export async function openRangeSource(url: string, fetchFn: typeof fetch): Promi
       const start = Math.max(offset, head.length)
       const response = await requestRange(url, fetchFn, start, end - start)
       if (response.start !== start || response.end !== end - 1 || response.total !== size) {
+        await response.body.cancel().catch(() => undefined)
         throw new NotAvailableError('The server answered with a different range than requested')
       }
       return offset < head.length ? prepend(head.subarray(offset), response.body) : response.body
@@ -58,13 +59,25 @@ async function requestRange(url: string, fetchFn: typeof fetch, offset: number, 
   }
   // The content exists but can't be read in parts; the caller keeps the response so its body can still be saved
   if (response.status === 200) throw new RangeUnsupportedError(response)
-  if ([404, 502, 504].includes(response.status)) throw new NotAvailableError('Share is not available yet')
-  if (response.status !== 206) throw new Error(`Unexpected response: ${response.status}`)
+  // Responses that are thrown away get their body cancelled, so the gateway stops sending it
+  if ([404, 502, 504].includes(response.status)) {
+    await discard(response)
+    throw new NotAvailableError('Share is not available yet')
+  }
+  if (response.status !== 206) {
+    await discard(response)
+    throw new Error(`Unexpected response: ${response.status}`)
+  }
 
   const range = CONTENT_RANGE.exec(response.headers.get('content-range') ?? '')
-  if (!range || !response.body) throw new NotAvailableError('The server sent an invalid range response')
+  if (!range || !response.body) {
+    await discard(response)
+    throw new NotAvailableError('The server sent an invalid range response')
+  }
   return { start: Number(range[1]), end: Number(range[2]), total: Number(range[3]), body: response.body }
 }
+
+const discard = (response: Response) => response.body?.cancel().catch(() => undefined)
 
 function prepend(first: Uint8Array, rest: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   const reader = rest.getReader()

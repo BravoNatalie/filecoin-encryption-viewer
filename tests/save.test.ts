@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MAX_DOCUMENT_PREVIEW_BYTES } from '../src/decrypt.js'
 import { TooLargeError } from '../src/errors.js'
-import { saveEntry } from '../src/save.js'
+import { revokeStagedUrl, saveEntry } from '../src/save.js'
 
 function byteStream(...chunks: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -13,6 +13,7 @@ function byteStream(...chunks: Uint8Array[]): ReadableStream<Uint8Array> {
 }
 
 afterEach(() => {
+  revokeStagedUrl()
   vi.unstubAllGlobals()
 })
 
@@ -44,6 +45,29 @@ describe('saveEntry', () => {
     expect(createWritable).toHaveBeenCalledOnce()
     expect(open).toHaveBeenCalledOnce()
     expect(written).toEqual([1, 2, 3, 4])
+  })
+
+  it('returns cancelled, without reading the entry, when the picker is dismissed', async () => {
+    vi.stubGlobal(
+      'showSaveFilePicker',
+      vi.fn(async () => {
+        throw new DOMException('dismissed', 'AbortError')
+      })
+    )
+    const open = vi.fn(async () => byteStream(new Uint8Array([1])))
+    await expect(saveEntry({ size: 1, contentType: 'x', open }, 'a.bin')).resolves.toBe('cancelled')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('still rejects on other picker errors', async () => {
+    vi.stubGlobal(
+      'showSaveFilePicker',
+      vi.fn(async () => {
+        throw new DOMException('blocked', 'SecurityError')
+      })
+    )
+    const open = vi.fn(async () => byteStream(new Uint8Array([1])))
+    await expect(saveEntry({ size: 1, contentType: 'x', open }, 'a.bin')).rejects.toThrow('blocked')
   })
 
   describe('without the file picker API', () => {
@@ -129,7 +153,7 @@ describe('saveEntry', () => {
     })
   })
 
-  it('revokes the bounded fallback download URL', async () => {
+  it('keeps the fallback download URL alive until the next save or pagehide', async () => {
     vi.stubGlobal('showSaveFilePicker', undefined)
     const click = vi.fn()
     const remove = vi.fn()
@@ -139,7 +163,7 @@ describe('saveEntry', () => {
       createElement: () => link as unknown as HTMLAnchorElement,
       body: { append },
     })
-    const createObjectURL = vi.fn(() => 'blob:bounded-entry')
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:bounded-entry')
     const revokeObjectURL = vi.fn()
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
 
@@ -148,6 +172,10 @@ describe('saveEntry', () => {
 
     expect(click).toHaveBeenCalledOnce()
     expect(remove).toHaveBeenCalledOnce()
+    // never a typed blob: a text/html or image/svg+xml one opens with scripts on this origin
+    expect(createObjectURL.mock.calls[0][0].type).toBe('application/octet-stream')
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    revokeStagedUrl()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:bounded-entry')
   })
 })
