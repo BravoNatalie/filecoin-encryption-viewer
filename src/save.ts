@@ -16,7 +16,8 @@ interface SavePickerHost {
   }) => Promise<SaveFileHandle>
 }
 
-const SAVE_CAP_DESKTOP = 1024 * 1024 * 1024
+// measured: a 1 GB fallback save peaked at 3-4x the file size in Firefox/WebKit
+const SAVE_CAP_DESKTOP = 512 * 1024 * 1024
 const SAVE_CAP_MOBILE = 256 * 1024 * 1024
 
 // Largest file the in-memory Blob fallback (no showSaveFilePicker) will build.

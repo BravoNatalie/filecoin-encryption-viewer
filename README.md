@@ -73,7 +73,7 @@ The key derivation is a copy of filecoin-pin's (`src/common/encryption.ts`). A k
 
 ## Content rendering
 
-The viewer reads the share with HTTP Range requests. It fetches only the metadata to show the tree, and only a file's own ranges when you open it. There is no cap on the share's size. Saving a file without `showSaveFilePicker` (Firefox, Safari, mobile) builds it in memory, capped at 1 GiB on desktop and 256 MiB on mobile; above that it shows "too large to save in this browser, use `filecoin-pin decrypt`". If the server ignores Range and sends the whole file, the viewer offers that encrypted file as a download (`encrypted.fee`) instead.
+The viewer reads the share with HTTP Range requests. It fetches only the metadata to show the tree, and only a file's own ranges when you open it. There is no cap on the share's size. Saving a file without `showSaveFilePicker` (Firefox, Safari, mobile) builds it in memory, capped at 512 MiB on desktop and 256 MiB on mobile; above that it shows "too large to save in this browser, use `filecoin-pin decrypt`". If the server ignores Range and sends the whole file, the viewer offers that encrypted file as a download (`encrypted.fee`) instead.
 
 - **Single file:** opens straight into its file.
 - **Folder:** shown as a tree under the folder's real name, with sizes. Folders open and close natively, and folders at depth 2 or shallower start open.

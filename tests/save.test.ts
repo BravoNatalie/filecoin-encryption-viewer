@@ -73,7 +73,7 @@ describe('saveEntry', () => {
     })
 
     it.each([
-      ['desktop', { userAgentData: { mobile: false } }, 1024 * MIB + 1],
+      ['desktop', { userAgentData: { mobile: false } }, 512 * MIB + 1],
       ['mobile (userAgentData)', { userAgentData: { mobile: true } }, 256 * MIB + 1],
     ])('refuses above the %s cap without opening the entry', async (_name, navigator, size) => {
       stubDownload()
@@ -84,6 +84,17 @@ describe('saveEntry', () => {
         saveEntry({ size, contentType: 'application/octet-stream', open }, 'big.bin')
       ).rejects.toBeInstanceOf(TooLargeError)
       expect(open).not.toHaveBeenCalled()
+    })
+
+    it('saves a file exactly at the desktop cap', async () => {
+      const { createObjectURL } = stubDownload()
+      vi.stubGlobal('navigator', { userAgentData: { mobile: false } })
+      const open = vi.fn(async () => byteStream(new Uint8Array([1])))
+
+      await expect(
+        saveEntry({ size: 512 * MIB, contentType: 'application/octet-stream', open }, 'edge.bin')
+      ).resolves.toBe('saved')
+      expect(createObjectURL).toHaveBeenCalledOnce()
     })
 
     it('treats a touch-only pointer as mobile when userAgentData is missing', async () => {
@@ -105,7 +116,7 @@ describe('saveEntry', () => {
         async () =>
           new ReadableStream<Uint8Array>({
             start(controller) {
-              controller.enqueue({ length: 1024 * MIB + 1 } as Uint8Array)
+              controller.enqueue({ length: 512 * MIB + 1 } as Uint8Array)
             },
             cancel,
           })
