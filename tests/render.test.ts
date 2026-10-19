@@ -92,7 +92,7 @@ describe('renderContent', () => {
 
     renderContent(container, bytes(0x00, 0x00, 0x00, 0x18), 'video/mp4')
 
-    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(createObjectURL).toHaveBeenCalledTimes(2) // the preview source and the Download link
     expect(container.innerHTML).toContain('<video controls preload="metadata" src="blob:video"></video>')
     expect(container.innerHTML).toContain('>Download</a>')
   })

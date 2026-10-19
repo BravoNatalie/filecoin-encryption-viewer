@@ -73,7 +73,8 @@ export async function saveEntry(
   const cap = saveFallbackCap()
   if (entry.size > cap) throw new TooLargeError('This file is too large to save in this browser')
   const parts = await readParts(await entry.open(), cap)
-  const objectUrl = URL.createObjectURL(new Blob(parts as BlobPart[], { type: entry.contentType }))
+  // octet-stream: a typed blob (html, svg) opened from the download link would run its scripts on this origin
+  const objectUrl = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/octet-stream' }))
   try {
     clickDownload(objectUrl, suggestedName)
   } finally {

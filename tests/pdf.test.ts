@@ -41,6 +41,9 @@ describe('PDF view', () => {
     expect(html).not.toContain('eyebrow')
     expect(html).toContain('>Download</a>')
     expect(blobs[0].type).toBe('application/pdf')
+    // the Download link is a separate octet-stream blob
+    expect(html).toContain('href="blob:test-2" download="decrypted-content.pdf"')
+    expect(blobs[1].type).toBe('application/octet-stream')
   })
 
   it('falls back to the unknown-type card when the bytes are not a PDF', () => {
@@ -57,7 +60,7 @@ describe('PDF view', () => {
     renderContent(container, pdfBytes, 'application/pdf', 'report.pdf')
 
     revokeRenderedObjectUrls(container) // what "← All files" does
-    expect(revokeObjectURL).not.toHaveBeenCalled()
+    expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:test-1')
 
     revokePdfObjectUrls() // what pagehide does
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-1')

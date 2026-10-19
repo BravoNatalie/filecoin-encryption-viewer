@@ -43,9 +43,16 @@ export async function detectContentType(data: Uint8Array): Promise<string> {
   }
 }
 
+// Blob URLs share the Viewer's origin, and a text/html or image/svg+xml blob opened in a tab runs its scripts there.
+// So only these types ever get a typed blob (as a preview source); every Download link is application/octet-stream,
+// and SVG and other XML are shown as source text.
+const RASTER_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'])
+const XML_TYPES = new Set(['image/svg+xml', 'application/xml', 'text/xml', 'application/xhtml+xml'])
+const DOWNLOAD_TYPE = 'application/octet-stream'
+
 export function isBinaryPreviewType(contentType: string): boolean {
   return (
-    contentType.startsWith('image/') ||
+    RASTER_IMAGE_TYPES.has(contentType) ||
     contentType.startsWith('audio/') ||
     contentType.startsWith('video/') ||
     contentType === 'application/pdf'
@@ -62,7 +69,7 @@ function fileHeader(name: string, title: string, contentType: string, size: numb
 
 // A column: heading, the sandboxed page at card width, then the download action.
 function renderHtml(container: HTMLElement, data: Uint8Array, displayName: string, title: string): void {
-  const objectUrl = URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: 'text/html' }))
+  const objectUrl = URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: DOWNLOAD_TYPE }))
   activeObjectUrls.set(container, [objectUrl])
   container.classList.add('wide')
   container.innerHTML = `
@@ -85,27 +92,37 @@ export function renderContent(
   setCardLabel('Encrypted share')
   container.classList.remove('wide')
   // Never trust the sniffed type alone for PDFs: the bytes must really start with %PDF-
-  const contentType =
+  let contentType =
     sniffedType === 'application/pdf' && !hasPdfSignature(data) ? 'application/octet-stream' : sniffedType
+  if (XML_TYPES.has(contentType)) contentType = 'text/plain'
   if (contentType === 'text/html') {
     renderHtml(container, data, displayName, title)
     return
   }
 
-  const blob = new Blob([data as Uint8Array<ArrayBuffer>], {
-    type: contentType,
-  })
-  const objectUrl = URL.createObjectURL(blob)
-  if (contentType === 'application/pdf') pdfObjectUrls.add(objectUrl)
-  else activeObjectUrls.set(container, [objectUrl])
+  // Only previewable types get a typed blob, as the source of the <img>/<video>/PDF tab. Every Download link is its own
+  // octet-stream blob (for a preview, a slice over the same bytes).
+  const previewable = isBinaryPreviewType(contentType)
+  const preview = previewable ? new Blob([data as Uint8Array<ArrayBuffer>], { type: contentType }) : undefined
+  const previewUrl = preview ? URL.createObjectURL(preview) : ''
+  const download = preview
+    ? preview.slice(0, preview.size, DOWNLOAD_TYPE)
+    : new Blob([data as Uint8Array<ArrayBuffer>], { type: DOWNLOAD_TYPE })
+  const objectUrl = URL.createObjectURL(download)
+  if (contentType === 'application/pdf') {
+    pdfObjectUrls.add(previewUrl)
+    activeObjectUrls.set(container, [objectUrl])
+  } else {
+    activeObjectUrls.set(container, previewUrl ? [previewUrl, objectUrl] : [objectUrl])
+  }
   const filename = 'decrypted-content'
   const header = fileHeader(displayName, title, contentType, data.byteLength)
 
-  if (contentType.startsWith('image/')) {
+  if (RASTER_IMAGE_TYPES.has(contentType)) {
     container.classList.add('wide')
     container.innerHTML = `
       <div class="content-wrapper">${header}
-        <img src="${objectUrl}" alt="Decrypted image" style="max-width:100%;max-height:90vh;display:block;margin:0 auto;" />
+        <img src="${previewUrl}" alt="Decrypted image" style="max-width:100%;max-height:90vh;display:block;margin:0 auto;" />
         <a class="btn-secondary" href="${objectUrl}" download="${escapeHtml(filename)}">Download</a>
       </div>
     `
@@ -117,7 +134,7 @@ export function renderContent(
     container.classList.add('wide')
     container.innerHTML = `
       <div class="content-wrapper">${header}
-        <${tag} controls preload="metadata" src="${objectUrl}"></${tag}>
+        <${tag} controls preload="metadata" src="${previewUrl}"></${tag}>
         <a class="btn-secondary" href="${objectUrl}" download="${escapeHtml(filename)}">Download</a>
       </div>
     `
@@ -136,7 +153,7 @@ export function renderContent(
         </div>
         <div class="pdf-actions">
           <a class="btn-secondary" href="${objectUrl}" download="${escapeHtml(filename)}.pdf">Download</a>
-          <a class="btn-primary pdf-open" href="${objectUrl}" target="_blank" rel="noopener noreferrer">Open in new tab ${EXTERNAL_ICON}</a>
+          <a class="btn-primary pdf-open" href="${previewUrl}" target="_blank" rel="noopener noreferrer">Open in new tab ${EXTERNAL_ICON}</a>
         </div>
         <p class="pdf-note">Opens in your browser's own PDF viewer. The file was decrypted on this device and is never uploaded.</p>
       </div>
