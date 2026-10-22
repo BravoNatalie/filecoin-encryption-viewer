@@ -61,7 +61,17 @@ Taken from Jenni's [`packages/foc-viewer`](https://github.com/jennijuju/foc-encr
 https://<viewer-cid>.ipfs.inbrowser.link/#v1/<encrypted-root-cid>
 ```
 
-The fragment carries only the Encrypted root CID. The password is sent to the recipient on a separate channel and typed into the page. A link that carries anything else after `#v1/<cid>` is rejected with an incomplete-link message.
+The fragment carries only the Encrypted root CID. The password is sent to the recipient on a separate channel and typed into the page. A link that carries anything else after `#v1/<cid>` (apart from the optional parameters below) is rejected with an incomplete-link message.
+
+### One-click links
+
+An optional link carries the share's key instead of asking for the password:
+
+```text
+https://<viewer-cid>.ipfs.inbrowser.link/#v1/<encrypted-root-cid>&k=fak1_<43 characters>
+```
+
+`k` is `fak1_` plus the base64url (no padding) of the 32-byte key the password derives. The key opens only this share (every upload has its own salt) and never reveals the password, but whoever holds the link can open the share, so it is opt-in. The viewer opens the share with the key and no prompt, and clears the key from the address bar before it fetches anything, so a reload or a copy of the address no longer carries it. If the key doesn't work, it falls back to the password prompt. Make one from an envelope file with `pnpm key-link <envelope-file> [--password <pw>] [--viewer <viewer-cid>] [--cid <encrypted-root-cid>]` (the password defaults to `dev-password`); `pnpm dev:share` prints the one-click dev link next to the normal one.
 
 The viewer fetches `https://<encrypted-root-cid>.ipfs.dweb.link/` with HTTP Range requests. inbrowser.link's service worker intercepts that request and serves it from the storage providers through IPNI, so the viewer only works when opened at an inbrowser.link origin. A share opened before IPNI has caught up shows "not available yet".
 

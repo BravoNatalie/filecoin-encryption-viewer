@@ -11,7 +11,7 @@ const problems = []
 
 if (!source) problems.push('source index.html has no CSP meta')
 if (csp(dist) !== source) problems.push(`dist CSP differs from source:\n  dist:   ${csp(dist)}\n  source: ${source}`)
-for (const marker of ['__dev-share', 'devcap', '[foc-viewer dev]']) {
+for (const marker of ['__dev-share', 'devcap', '[foc-viewer dev]', 'key-link']) {
   if (dist.includes(marker)) problems.push(`dist/index.html contains dev marker "${marker}"`)
 }
 

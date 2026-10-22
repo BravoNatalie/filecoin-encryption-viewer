@@ -47,7 +47,11 @@ export function unlockErrorMessage(cause: unknown): string {
   return 'Something went wrong opening this share. Try again.'
 }
 
-export function showAccessKeyPrompt(container: HTMLElement, onSubmit: (password: string) => Promise<void>): void {
+export function showAccessKeyPrompt(
+  container: HTMLElement,
+  onSubmit: (password: string) => Promise<void>,
+  notice?: string
+): void {
   clearCardLabel()
   container.innerHTML = `
     <form class="password-form">
@@ -81,6 +85,10 @@ export function showAccessKeyPrompt(container: HTMLElement, onSubmit: (password:
   const button = container.querySelector('#view-btn') as HTMLButtonElement
   const passwordToggle = container.querySelector('#password-toggle') as HTMLButtonElement
   const error = container.querySelector('#error') as HTMLParagraphElement
+  if (notice) {
+    error.textContent = notice
+    error.hidden = false
+  }
   passwordInput.focus()
 
   passwordToggle.addEventListener('click', () => {
@@ -119,6 +127,19 @@ export function showAccessKeyPrompt(container: HTMLElement, onSubmit: (password:
       button.textContent = 'Unlock'
     }
   })
+}
+
+/** Shown while a one-click link opens the share, before there is a tree or a file. */
+export function showDecrypting(container: HTMLElement): void {
+  clearCardLabel()
+  container.innerHTML = `
+    <div class="missing-link center">
+      ${hero(true)}
+      <p class="eyebrow">Encrypted share</p>
+      <h1>Decrypting…</h1>
+      <p class="lede">Opening this share in your browser.</p>
+    </div>
+  `
 }
 
 export function showMissingLink(container: HTMLElement): void {

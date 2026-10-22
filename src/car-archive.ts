@@ -58,26 +58,36 @@ interface Reader {
   params: fee.ChunkedEnvelopeParams
 }
 
+/**
+ * `secret` is the password, or the 32-byte key of a one-click link (the same key a password derives). The archive
+ * takes ownership of a key: it is zeroed on close(), or here if opening fails.
+ */
 export async function openProtectedArchive(
   cid: string,
-  password: string,
+  secret: string | Uint8Array,
   fetchFn: typeof fetch = fetch
 ): Promise<ProtectedArchive> {
   if (!CID_PATTERN.test(cid)) throw new Error('Invalid encrypted Root CID')
 
-  let key: Uint8Array | undefined
+  let key = typeof secret === 'string' ? undefined : secret
   try {
     const source = await openRangeSource(`https://${cid}.ipfs.dweb.link/`, fetchFn)
     const info = await fee.parse(source)
     if (info.scheme !== 'chunked' || info.contentType !== CAR_CONTENT_TYPE || !info.params.plaintextLength) {
       throw new NotAShareError()
     }
-    const { salt, iterations } = validateKdfMetadata(info.appMetadata)
-    key = await derivePasswordKey(password, salt, iterations)
+    if (typeof secret === 'string') {
+      const { salt, iterations } = validateKdfMetadata(info.appMetadata)
+      key = await derivePasswordKey(secret, salt, iterations)
+    }
     // From here the archive owns the key; close() zeroes it
-    return await buildArchive({ source, key, params: info.params })
+    return await buildArchive({ source, key: key as Uint8Array, params: info.params })
   } catch (error) {
     key?.fill(0)
+    // A key from a link can be anything well-formed, including all zeros, which FEE refuses: same as a wrong key
+    if (typeof secret !== 'string' && error instanceof errors.InvalidKeyError) {
+      throw new WrongPasswordError('The key did not work', { cause: error })
+    }
     throw mapError(error)
   }
 }

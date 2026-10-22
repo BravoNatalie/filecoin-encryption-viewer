@@ -13,6 +13,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/check-dist.mjs",
     "dev:share": "node scripts/dev-share.ts",
+    "key-link": "node scripts/key-link.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

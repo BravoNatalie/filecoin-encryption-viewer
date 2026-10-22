@@ -1,7 +1,7 @@
 import type { ProtectedArchive, ProtectedEntry } from './car-archive.js'
 import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
-import { RangeUnsupportedError } from './errors.js'
+import { RangeUnsupportedError, WrongPasswordError } from './errors.js'
 import { parseFragment } from './fragment.js'
 import { removeOwnStagedFiles, removeStagedFiles } from './opfs-save.js'
 import {
@@ -16,10 +16,12 @@ import type { SaveResult } from './save.js'
 import {
   addBackButton,
   showAccessKeyPrompt,
+  showDecrypting,
   showMissingLink,
   showProtectedArchive,
   showRangeUnsupported,
   showSaveEntry,
+  unlockErrorMessage,
 } from './ui.js'
 import { archiveZip, zipFileName } from './zip.js'
 
@@ -187,20 +189,20 @@ function devTimeKeyDerivation(): void {
 }
 if (import.meta.env.DEV) devTimeKeyDerivation()
 
-async function unlockArchive(cid: string, accessKey: string): Promise<void> {
+async function unlockArchive(cid: string, secret: string | Uint8Array): Promise<void> {
   try {
-    await unlock(cid, accessKey)
+    await unlock(cid, secret)
   } catch (error) {
     if (!(error instanceof RangeUnsupportedError)) throw error
     showRangeIgnored(error.response)
   }
 }
 
-async function unlock(cid: string, accessKey: string): Promise<void> {
+async function unlock(cid: string, secret: string | Uint8Array): Promise<void> {
   const startedAt = performance.now()
   const archive = import.meta.env.DEV
-    ? await openProtectedArchive(cid, accessKey, devFetch())
-    : await openProtectedArchive(cid, accessKey)
+    ? await openProtectedArchive(cid, secret, devFetch())
+    : await openProtectedArchive(cid, secret)
   if (import.meta.env.DEV) devLog(`archive ready (head + metadata + decrypt + listing): ${elapsed(startedAt)}`)
   await activeArchive?.close()
   activeArchive = archive
@@ -218,6 +220,19 @@ async function unlock(cid: string, accessKey: string): Promise<void> {
   }
 }
 
+const KEY_FAILED_MESSAGE = "The key in this link didn't work. Enter the password instead."
+
+// A one-click link carries the share's key: open with it, and fall back to the password prompt if that fails.
+async function unlockWithKey(cid: string, key: Uint8Array): Promise<void> {
+  showDecrypting(container)
+  try {
+    await unlockArchive(cid, key)
+  } catch (error) {
+    const notice = error instanceof WrongPasswordError ? KEY_FAILED_MESSAGE : unlockErrorMessage(error)
+    showAccessKeyPrompt(container, (password) => unlockArchive(cid, password), notice)
+  }
+}
+
 function init(): void {
   const fragment = parseFragment(window.location.hash)
   if (!fragment) {
@@ -225,7 +240,13 @@ function init(): void {
     return
   }
 
-  showAccessKeyPrompt(container, (accessKey) => unlockArchive(fragment.cid, accessKey))
+  if (fragment.key) {
+    // Before any request: a reload or a copy of the address no longer carries the key
+    history.replaceState(null, '', `#v1/${fragment.cid}`)
+    void unlockWithKey(fragment.cid, fragment.key)
+    return
+  }
+  showAccessKeyPrompt(container, (password) => unlockArchive(fragment.cid, password))
 }
 
 window.addEventListener(

@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { makeShare } from '../tests/fixtures/make-share.ts'
 import type { ShareFile } from '../tests/fixtures/make-share.ts'
+import { accessKeyFor } from './access-key.ts'
 
 const DEV_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
 const ITERATIONS = 600_000
@@ -33,6 +34,7 @@ await writeFile(out, share)
 
 console.log(`Shared "${basename(root)}" (${files.length} file${files.length === 1 ? '' : 's'}) -> dev/share.fee`)
 console.log(`Open:     http://localhost:5173/#v1/${DEV_CID}`)
+console.log(`One-click: http://localhost:5173/#v1/${DEV_CID}&k=${await accessKeyFor(share, values.password)}`)
 console.log(`Password: ${values.password}`)
 
 async function toShareFile(path: string): Promise<ShareFile> {
