@@ -98,7 +98,7 @@ describe('one-click link in the page', () => {
 
     const error = app().querySelector('#error') as HTMLElement
     expect(error.hidden).toBe(false)
-    expect(error.textContent).toBe("The key in this link didn't work. Enter the password instead.")
+    expect(error.textContent).toBe("The key in this link didn't work. Enter the Access key you received instead.")
     expect(window.location.hash).toBe(`#v1/${CID}`)
 
     input.value = PASSWORD
@@ -115,7 +115,7 @@ describe('one-click link in the page', () => {
     const input = await waitFor(() => app().querySelector<HTMLInputElement>('#pw-input'))
 
     expect(app().querySelector('#error')?.textContent).toBe(
-      "The key in this link didn't work. Enter the password instead."
+      "The key in this link didn't work. Enter the Access key you received instead."
     )
     input.value = PASSWORD
     app()

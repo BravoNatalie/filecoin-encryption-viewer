@@ -98,7 +98,7 @@ const { errors } = fee
 // InvalidRangeError, base EnvelopeError) are programmer or platform errors and propagate unchanged.
 function mapError(error: unknown): unknown {
   if (error instanceof errors.AuthenticationError) {
-    return new WrongPasswordError('Wrong password, or the share was modified', { cause: error })
+    return new WrongPasswordError('Wrong key, or the share was modified', { cause: error })
   }
   if (
     error instanceof errors.InvalidCiphertextLengthError ||

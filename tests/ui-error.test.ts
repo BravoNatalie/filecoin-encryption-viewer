@@ -11,7 +11,7 @@ import { unlockErrorMessage } from '../src/ui.js'
 describe('unlockErrorMessage', () => {
   it('maps WrongPasswordError', () => {
     expect(unlockErrorMessage(new WrongPasswordError('x'))).toBe(
-      'That password could not decrypt this share, or the share was modified. Check it and try again.'
+      'That Access key could not decrypt this share, or the share was modified. Check it and try again.'
     )
   })
 

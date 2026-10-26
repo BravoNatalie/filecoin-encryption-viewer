@@ -220,9 +220,9 @@ async function unlock(cid: string, secret: string | Uint8Array): Promise<void> {
   }
 }
 
-const KEY_FAILED_MESSAGE = "The key in this link didn't work. Enter the password instead."
+const KEY_FAILED_MESSAGE = "The key in this link didn't work. Enter the Access key you received instead."
 
-// A one-click link carries the share's key: open with it, and fall back to the password prompt if that fails.
+// A one-click link carries the share's key: open with it, and fall back to the Access key prompt if that fails.
 async function unlockWithKey(cid: string, key: Uint8Array): Promise<void> {
   showDecrypting(container)
   try {

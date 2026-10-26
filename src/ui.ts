@@ -5,10 +5,10 @@ import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
 import type { SaveResult } from './save.js'
 
-const HERO_URL = new URL('../assets/secure-sharing-hero.webp', import.meta.url).href
+const HERO_URL = new URL('../assets/filecoin-private-sharing.svg', import.meta.url).href
 
 const hero = (small = false) =>
-  `<img class="hero${small ? ' small' : ''}" src="${HERO_URL}" alt="" width="600" height="404" decoding="async" />`
+  `<img class="hero${small ? ' small' : ''}" src="${HERO_URL}" alt="" width="600" height="354" decoding="async" />`
 
 const ICON =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"'
@@ -26,11 +26,11 @@ const features = () => `
   </ul>`
 
 export const TOO_LARGE_MESSAGE = 'This file is too large to save in this browser. Use `filecoin-pin decrypt` instead.'
-const EMPTY_PASSWORD_ERROR = 'Enter the password you received from the sender.'
+const EMPTY_KEY_ERROR = 'Enter the Access key you received from the sender.'
 
 export function unlockErrorMessage(cause: unknown): string {
   if (cause instanceof WrongPasswordError) {
-    return 'That password could not decrypt this share, or the share was modified. Check it and try again.'
+    return 'That Access key could not decrypt this share, or the share was modified. Check it and try again.'
   }
   if (cause instanceof NotAvailableError) {
     return "This share isn't available yet, or the download was interrupted. Try again in a few minutes."
@@ -59,15 +59,15 @@ export function showAccessKeyPrompt(
       <p class="eyebrow center">Encrypted share</p>
       <h1 class="big center">Unlock this share</h1>
       <p class="lede center">
-        <span>The content is encrypted and stored on Filecoin.</span>
-        <span>Use the password the sender gave you separately.</span>
+        <span>The data is encrypted and stored on Filecoin.</span>
+        <span>Use the Access key the sender gave you separately.</span>
         <span>Decryption happens in your browser.</span>
       </p>
       ${features()}
-      <label for="pw-input">Password</label>
+      <label for="pw-input">Access key</label>
       <div class="password-input">
-        <input type="password" id="pw-input" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Enter password" />
-        <button class="password-toggle" id="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+        <input type="password" id="pw-input" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Enter Access key" />
+        <button class="password-toggle" id="password-toggle" type="button" aria-label="Show Access key" aria-pressed="false">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
             <path d="M2.7 12s3.4-5.2 9.3-5.2S21.3 12 21.3 12s-3.4 5.2-9.3 5.2S2.7 12 2.7 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
             <circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7" />
@@ -76,7 +76,7 @@ export function showAccessKeyPrompt(
       </div>
       <button class="btn-primary" id="view-btn" type="submit">Unlock</button>
       <p class="error" id="error" role="alert" hidden></p>
-      <p class="hint">${LOCK_ICON}Only someone with the password can unlock this share.</p>
+      <p class="hint">${LOCK_ICON}Only someone with the Access key can unlock this share.</p>
     </form>
   `
 
@@ -95,7 +95,7 @@ export function showAccessKeyPrompt(
     const showPassword = passwordInput.type === 'password'
     const { selectionStart, selectionEnd } = passwordInput
     passwordInput.type = showPassword ? 'text' : 'password'
-    passwordToggle.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password')
+    passwordToggle.setAttribute('aria-label', showPassword ? 'Hide Access key' : 'Show Access key')
     passwordToggle.setAttribute('aria-pressed', String(showPassword))
     passwordInput.focus()
     if (selectionStart !== null && selectionEnd !== null) {
@@ -108,7 +108,7 @@ export function showAccessKeyPrompt(
     if (button.disabled) return
 
     if (!passwordInput.value) {
-      error.textContent = EMPTY_PASSWORD_ERROR
+      error.textContent = EMPTY_KEY_ERROR
       error.hidden = false
       return
     }
@@ -436,7 +436,7 @@ export function showRangeUnsupported(
   container.innerHTML = `
     <div class="content-wrapper">
       <h1 class="file-title">This share can't be opened in the browser</h1>
-      <p class="lede-left">The server sent the whole encrypted file instead of the parts the Viewer asked for. You can download the encrypted file and decrypt it on your computer with your password.</p>
+      <p class="lede-left">The server sent the whole encrypted file instead of the parts the Viewer asked for. You can download the encrypted file and decrypt it on your computer with your Access key.</p>
       <button class="btn-primary" id="save-encrypted" type="button">${label}</button>
       <p class="hint" id="save-status" role="status"></p>
       <p class="error" id="save-error" role="alert" hidden></p>

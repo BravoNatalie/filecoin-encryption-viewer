@@ -1,7 +1,7 @@
 {
-  "name": "foc-viewer",
+  "name": "filecoin-encryption-viewer",
   "version": "0.1.0",
-  "description": "Single-file browser viewer for password-encrypted filecoin-pin shares",
+  "description": "Single-file browser viewer for encrypted filecoin-pin shares",
   "type": "module",
   "private": true,
   "license": "MIT",

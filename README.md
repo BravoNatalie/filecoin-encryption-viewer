@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/secure-sharing-hero.webp" alt="Secure sharing" width="280" />
+  <img src="assets/filecoin-private-sharing.svg" alt="Filecoin private sharing" width="280" />
 </p>
 
-<h1 align="center">foc-viewer</h1>
+<h1 align="center">filecoin-encryption-viewer</h1>
 
 <p align="center">
-  Open password-encrypted Filecoin Onchain Cloud shares in your browser. Decryption never leaves the page.
+  Open encrypted Filecoin shares in your browser. Decryption never leaves the page.
 </p>
 
 <p align="center">

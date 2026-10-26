@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1834" height="1082" viewBox="0 0 1834 1082" role="img" aria-labelledby="art-title art-description">
+  <title id="art-title">Filecoin private data sharing</title>
+  <desc id="art-description">Editable vector recreation of a folded document with a blue Filecoin badge and a shield containing a closed padlock, surrounded by three blue orbital lines and nodes against a softly shaded blue sphere. White background; no caption.</desc>
+  <defs>
+    <radialGradient id="sphere-blue" cx="44%" cy="42%" r="64%">
+      <stop offset="0" stop-color="#67a9fc"/>
+      <stop offset=".36" stop-color="#80b7fa"/>
+      <stop offset=".72" stop-color="#bddafa"/>
+      <stop offset="1" stop-color="#e8f0fc"/>
+    </radialGradient>
+    <linearGradient id="sphere-light" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop offset=".46" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".27"/>
+    </linearGradient>
+    <linearGradient id="orbit-main" gradientUnits="userSpaceOnUse" x1="79" y1="430" x2="1691" y2="652">
+      <stop offset="0" stop-color="#0872fa"/>
+      <stop offset=".35" stop-color="#60adfb"/>
+      <stop offset=".65" stop-color="#7bbafd"/>
+      <stop offset="1" stop-color="#0870fc"/>
+    </linearGradient>
+    <linearGradient id="orbit-rise" gradientUnits="userSpaceOnUse" x1="134" y1="805" x2="1460" y2="146">
+      <stop offset="0" stop-color="#91c3fa"/>
+      <stop offset=".45" stop-color="#65aaf4"/>
+      <stop offset="1" stop-color="#82b7f7"/>
+    </linearGradient>
+    <linearGradient id="orbit-faint" gradientUnits="userSpaceOnUse" x1="440" y1="184" x2="1628" y2="840">
+      <stop offset="0" stop-color="#a8cef5" stop-opacity=".37"/>
+      <stop offset=".55" stop-color="#a6cdf8" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#87b8f0" stop-opacity=".63"/>
+    </linearGradient>
+    <linearGradient id="paper" gradientUnits="userSpaceOnUse" x1="705" y1="232" x2="1121" y2="875">
+      <stop offset="0" stop-color="#fcfeff"/>
+      <stop offset=".40" stop-color="#f3f9ff"/>
+      <stop offset=".72" stop-color="#e0efff"/>
+      <stop offset="1" stop-color="#bad9fd"/>
+    </linearGradient>
+    <linearGradient id="paper-fold" gradientUnits="userSpaceOnUse" x1="1084" y1="238" x2="1035" y2="365">
+      <stop offset="0" stop-color="#edf6ff"/>
+      <stop offset=".48" stop-color="#cce5ff"/>
+      <stop offset="1" stop-color="#a8d1fb"/>
+    </linearGradient>
+    <linearGradient id="document-line" x1="0" y1="0" x2="1" y2=".55">
+      <stop offset="0" stop-color="#c2ddfb"/>
+      <stop offset=".55" stop-color="#bbd9fa"/>
+      <stop offset="1" stop-color="#aed2f8"/>
+    </linearGradient>
+    <linearGradient id="badge-blue" gradientUnits="userSpaceOnUse" x1="702" y1="651" x2="856" y2="817">
+      <stop offset="0" stop-color="#009cff"/>
+      <stop offset=".55" stop-color="#0099fb"/>
+      <stop offset="1" stop-color="#0089f8"/>
+    </linearGradient>
+    <linearGradient id="shield-rim" gradientUnits="userSpaceOnUse" x1="1008" y1="515" x2="1209" y2="855">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#eff8ff"/>
+      <stop offset="1" stop-color="#dfedfc"/>
+    </linearGradient>
+    <linearGradient id="shield-blue" gradientUnits="userSpaceOnUse" x1="991" y1="579" x2="1209" y2="772">
+      <stop offset="0" stop-color="#49a6fb"/>
+      <stop offset=".35" stop-color="#118bfc"/>
+      <stop offset=".72" stop-color="#0875f8"/>
+      <stop offset="1" stop-color="#0065ed"/>
+    </linearGradient>
+    <linearGradient id="lock-white" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f4faff"/>
+    </linearGradient>
+    <radialGradient id="node-blue" cx="34%" cy="26%" r="77%">
+      <stop offset="0" stop-color="#279cff"/>
+      <stop offset=".62" stop-color="#0084ff"/>
+      <stop offset="1" stop-color="#0069ef"/>
+    </radialGradient>
+    <radialGradient id="node-pale" cx="32%" cy="24%" r="80%">
+      <stop offset="0" stop-color="#d0e6ff"/>
+      <stop offset="1" stop-color="#a3caf6"/>
+    </radialGradient>
+    <filter id="ground-blur" x="-35%" y="-250%" width="170%" height="600%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="40"/></filter>
+    <filter id="paper-shadow" x="-25%" y="-20%" width="155%" height="155%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="25" result="blur"/><feOffset in="blur" dx="1" dy="27" result="offsetBlur"/><feFlood flood-color="#1b76e9" flood-opacity=".29" result="shadowColor"/><feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/><feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="badge-shadow" x="-50%" y="-40%" width="210%" height="220%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="15" result="blur"/><feOffset in="blur" dx="3" dy="22" result="offsetBlur"/><feFlood flood-color="#497bb5" flood-opacity=".31" result="shadowColor"/><feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/><feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="shield-shadow" x="-40%" y="-30%" width="190%" height="185%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="20" result="blur"/><feOffset in="blur" dx="0" dy="18" result="offsetBlur"/><feFlood flood-color="#2d77d2" flood-opacity=".27" result="shadowColor"/><feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/><feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="lock-shadow" x="-40%" y="-30%" width="180%" height="180%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/><feOffset in="blur" dx="0" dy="2" result="offsetBlur"/><feFlood flood-color="#0044b5" flood-opacity=".16" result="shadowColor"/><feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/><feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="node-shadow" x="-30%" y="-25%" width="160%" height="165%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="blur"/><feOffset in="blur" dx="0" dy="2" result="offsetBlur"/><feFlood flood-color="#4a94ed" flood-opacity=".25" result="shadowColor"/><feComposite in="shadowColor" in2="offsetBlur" operator="in" result="shadow"/><feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+
+  <!-- Viewer: the white background rect is removed so the art sits on the card in light and dark mode -->
+  <g id="background" aria-label="Blue sphere">
+    <ellipse cx="884" cy="968" rx="434" ry="48" fill="#aebbc8" opacity=".19" filter="url(#ground-blur)"/>
+    <circle cx="875" cy="547" r="520" fill="url(#sphere-blue)"/>
+    <circle cx="875" cy="547" r="520" fill="url(#sphere-light)"/>
+  </g>
+
+  <g id="orbital-paths" aria-label="Three elliptical data-sharing orbits" fill="none" stroke-linecap="round">
+    <path id="faint-orbit" d="M440 184 C738 166 1268 382 1555 606 C1775 777 1597 963 1222 894 C870 829 446 596 318 371 C261 269 300 189 440 184 Z" stroke="url(#orbit-faint)" stroke-width="5"/>
+    <ellipse id="rising-orbit" cx="832" cy="507" rx="775" ry="200" transform="rotate(-25.2 832 507)" stroke="url(#orbit-rise)" stroke-width="7" opacity=".72"/>
+    <path id="horizontal-orbit" d="M224 594 C22 477 26 354 264 309 C589 240 1278 350 1622 551 C1853 730 1451 846 1060 793 C771 781 402 648 224 594 Z" stroke="url(#orbit-main)" stroke-width="8"/>
+  </g>
+
+  <g id="document" aria-label="Folded document with three text bars">
+    <path id="paper-body" d="M690 208 H1006 C1020 208 1029 214 1041 226 L1158 348 C1168 358 1172 370 1172 384 V817 C1172 862 1145 888 1101 888 H690 C645 888 618 861 618 816 V280 C618 236 645 208 690 208 Z" fill="url(#paper)" stroke="#ffffff" stroke-opacity=".85" stroke-width="3" filter="url(#paper-shadow)"/>
+    <path id="folded-corner" d="M1023 213 L1023 322 C1023 348 1035 363 1060 363 H1169 C1167 357 1164 352 1158 346 L1040 226 C1034 220 1028 216 1023 213 Z" fill="url(#paper-fold)" stroke="#f6fbff" stroke-width="2.7" stroke-linejoin="round"/>
+    <g id="document-lines" fill="url(#document-line)">
+      <rect x="696" y="343" width="276" height="41" rx="20.5"/>
+      <rect x="696" y="454" width="336" height="42" rx="21"/>
+      <rect x="696" y="556" width="208" height="41" rx="20.5"/>
+    </g>
+    <path id="orbit-through-paper" d="M619 712 C723 735 842 751 945 752" fill="none" stroke="#84bbef" stroke-opacity=".31" stroke-width="7"/>
+  </g>
+
+  <g id="filecoin-badge" aria-label="Filecoin logo on a blue circular badge">
+    <circle cx="778" cy="733" r="103" fill="url(#badge-blue)" filter="url(#badge-shadow)"/>
+    <g id="filecoin-symbol" fill="#ffffff" transform="translate(642.5 585.7) scale(.453)">
+      <path id="filecoin-f" d="M210 453 C216 453 220 458 224 465 C230 475 239 476 247 469 C263 453 273 419 282 381 L314 257 C324 219 341 186 369 180 C387 176 406 184 414 198 C419 208 411 216 402 211 C397 208 393 197 386 192 C375 183 363 193 356 206 C344 227 337 254 331 281 L303 395 C293 433 278 467 254 481 C238 490 220 486 207 477 C198 471 197 462 202 457 C204 455 206 454 210 453 Z"/>
+      <path id="filecoin-crossbars" d="M238 275 L391 298 L387 315 L236 292 Z M232 329 L383 352 L380 369 L229 346 Z"/>
+    </g>
+  </g>
+
+  <g id="privacy-shield" aria-label="Shield with a closed padlock">
+    <path id="shield-frame" d="M1092 503 C1100 500 1107 500 1116 504 L1230 550 C1248 558 1257 574 1257 595 V690 C1257 770 1216 827 1117 870 C1107 875 1099 875 1089 870 C989 827 941 770 941 695 V591 C941 572 950 557 969 548 Z" fill="url(#shield-rim)" stroke="#ffffff" stroke-opacity=".8" stroke-width="2.5" filter="url(#shield-shadow)"/>
+    <path id="shield-center" d="M1102 545 L1208 586 C1214 589 1217 594 1217 601 V691 C1217 751 1178 793 1107 826 C1103 829 1100 829 1096 826 C1023 791 982 747 982 689 V604 C982 595 986 590 994 587 Z" fill="url(#shield-blue)"/>
+    <g id="closed-padlock" fill="url(#lock-white)" filter="url(#lock-shadow)">
+      <path id="padlock-shackle" fill-rule="evenodd" d="M1068 671 V654 C1068 635 1083 620 1101 620 C1119 620 1134 635 1134 654 V671 H1119 V654 C1119 644 1111 636 1101 636 C1091 636 1083 644 1083 654 V671 Z"/>
+      <rect id="padlock-body" x="1055" y="664" width="92" height="77" rx="18"/>
+      <path id="padlock-keyhole" d="M1101 681 C1108 681 1114 687 1114 694 C1114 699 1111 703 1107 705 L1110 718 C1111 722 1107 724 1101 724 C1095 724 1092 722 1093 718 L1096 705 C1091 703 1088 699 1088 694 C1088 687 1094 681 1101 681 Z" fill="#0875ee"/>
+    </g>
+  </g>
+
+  <g id="orbit-nodes" aria-label="Blue nodes along the orbital paths">
+    <g fill="url(#node-pale)">
+      <circle cx="440" cy="184" r="21"/>
+      <circle cx="340" cy="921" r="18"/>
+      <circle cx="1628" cy="841" r="18.5"/>
+    </g>
+    <g fill="url(#node-blue)" filter="url(#node-shadow)">
+      <circle cx="224" cy="594" r="28"/>
+      <circle cx="134" cy="807" r="23"/>
+      <circle cx="1462" cy="147" r="28"/>
+      <circle cx="1622" cy="551" r="18"/>
+    </g>
+  </g>
+</svg>

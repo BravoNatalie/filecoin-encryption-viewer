@@ -22,15 +22,15 @@ const error = () => container.querySelector('#error') as HTMLParagraphElement
 const button = () => container.querySelector('#view-btn') as HTMLButtonElement
 
 describe('password prompt', () => {
-  it('says password in the label, placeholder and toggle', () => {
+  it('says Access key in the label, placeholder and toggle', () => {
     showAccessKeyPrompt(container, async () => {})
-    expect(container.querySelector('label')?.textContent).toBe('Password')
-    expect(container.querySelector('#pw-input')?.getAttribute('placeholder')).toBe('Enter password')
+    expect(container.querySelector('label')?.textContent).toBe('Access key')
+    expect(container.querySelector('#pw-input')?.getAttribute('placeholder')).toBe('Enter Access key')
     expect(container.querySelector('#pw-input')?.hasAttribute('maxlength')).toBe(false)
     const toggle = container.querySelector('#password-toggle') as HTMLButtonElement
-    expect(toggle.getAttribute('aria-label')).toBe('Show password')
+    expect(toggle.getAttribute('aria-label')).toBe('Show Access key')
     toggle.click()
-    expect(toggle.getAttribute('aria-label')).toBe('Hide password')
+    expect(toggle.getAttribute('aria-label')).toBe('Hide Access key')
   })
 
   it('rejects an empty submit without calling onSubmit', () => {
@@ -39,7 +39,7 @@ describe('password prompt', () => {
     submit('')
     expect(onSubmit).not.toHaveBeenCalled()
     expect(error().hidden).toBe(false)
-    expect(error().textContent).toBe('Enter the password you received from the sender.')
+    expect(error().textContent).toBe('Enter the Access key you received from the sender.')
   })
 
   it.each(['a', ' padded pass phrase ', 'pässwörd-🔑-日本語'.repeat(40)])('passes %j unchanged', async (password) => {
@@ -59,7 +59,7 @@ describe('password prompt', () => {
     expect(button().textContent).toBe('Decrypting…')
     await flush()
     expect(error().hidden).toBe(false)
-    expect(error().textContent).toContain('That password could not decrypt this share')
+    expect(error().textContent).toContain('That Access key could not decrypt this share')
     expect(button().disabled).toBe(false)
     expect(button().textContent).toBe('Unlock')
   })
