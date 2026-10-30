@@ -195,7 +195,8 @@ filecoin-pin add dist/index.html --dry-run   # prints the root CID without uploa
 
 | Commit | Viewer CID | Network |
 |---|---|---|
-| `4f07fae` | `bafkreierah7bnqa4ah5gahnepajuqh3l5etmysc63zqzfegqwlez2deonm` | calibration (staging, for testing) |
+| `4f07fae` | `bafkreierah7bnqa4ah5gahnepajuqh3l5etmysc63zqzfegqwlez2deonm` | calibration (staging, password prototype: can't open v1 links) |
+| `85adb6b` | `bafkreibthn4gniz2rjyi6rpcqn6lavpbdgok3w5dj2zghou4hem4bfuiqa` | calibration (staging, v1 share links) |
 
 The mainnet Viewer will be published once, after filecoin-pin's `--encrypt` and `decrypt` are released.
 
