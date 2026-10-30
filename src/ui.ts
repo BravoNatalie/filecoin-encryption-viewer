@@ -1,8 +1,19 @@
 import type { ProtectedEntry } from './car-archive.js'
 import { clearCardLabel, setCardLabel } from './card-label.js'
-import { NotAShareError, NotAvailableError, TooLargeError, TooManyEntriesError, WrongPasswordError } from './errors.js'
+import {
+  DamagedLinkError,
+  NotAShareError,
+  NotAvailableError,
+  OtherUploadError,
+  ShareExpiredError,
+  ShareModifiedError,
+  TooLargeError,
+  TooManyEntriesError,
+  WrongAccessKeyError,
+} from './errors.js'
 import { fileTypeLabel } from './file-type.js'
 import { formatBytes } from './format.js'
+import { decodeAccessKey } from './fragment.js'
 import type { SaveResult } from './save.js'
 
 const HERO_URL = new URL('../assets/filecoin-private-sharing.svg', import.meta.url).href
@@ -29,8 +40,20 @@ export const TOO_LARGE_MESSAGE = 'This file is too large to save in this browser
 const EMPTY_KEY_ERROR = 'Enter the Access key you received from the sender.'
 
 export function unlockErrorMessage(cause: unknown): string {
-  if (cause instanceof WrongPasswordError) {
-    return 'That Access key could not decrypt this share, or the share was modified. Check it and try again.'
+  if (cause instanceof WrongAccessKeyError) {
+    return "That Access key doesn't open this share. Check it and try again."
+  }
+  if (cause instanceof OtherUploadError) {
+    return 'This link is for another upload. Ask the sender for the right link.'
+  }
+  if (cause instanceof ShareExpiredError) {
+    return 'This share has expired. Ask the sender for a new link.'
+  }
+  if (cause instanceof DamagedLinkError) {
+    return 'This link is damaged. Copy it again, or ask the sender for a new one.'
+  }
+  if (cause instanceof ShareModifiedError) {
+    return 'This share was modified after it was shared, so it was not opened.'
   }
   if (cause instanceof NotAvailableError) {
     return "This share isn't available yet, or the download was interrupted. Try again in a few minutes."
@@ -47,14 +70,27 @@ export function unlockErrorMessage(cause: unknown): string {
   return 'Something went wrong opening this share. Try again.'
 }
 
+/**
+ * Checks a pasted Access key locally, the way filecoin-pin's parseAccessKey does: its 32 bytes, or what to tell the
+ * user. Whitespace is dropped, since keys get wrapped and indented when pasted.
+ */
+export function readAccessKey(text: string): Uint8Array | string {
+  const clean = text.replace(/\s+/g, '')
+  if (!clean) return EMPTY_KEY_ERROR
+  if (clean.startsWith('fgr1_')) return "That's a group key Grant, not an Access key."
+  if (clean.includes('#v1/')) return "That's a Share link, not an Access key."
+  if (!clean.startsWith('fak1_')) return 'An Access key starts with fak1_'
+  return decodeAccessKey(clean) ?? 'This Access key is incomplete. Copy it again.'
+}
+
 export function showAccessKeyPrompt(
   container: HTMLElement,
-  onSubmit: (password: string) => Promise<void>,
+  onSubmit: (accessKey: Uint8Array) => Promise<void>,
   notice?: string
 ): void {
   clearCardLabel()
   container.innerHTML = `
-    <form class="password-form">
+    <form class="key-form">
       ${hero()}
       <p class="eyebrow center">Encrypted share</p>
       <h1 class="big center">Unlock this share</h1>
@@ -64,10 +100,10 @@ export function showAccessKeyPrompt(
         <span>Decryption happens in your browser.</span>
       </p>
       ${features()}
-      <label for="pw-input">Access key</label>
-      <div class="password-input">
-        <input type="password" id="pw-input" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Enter Access key" />
-        <button class="password-toggle" id="password-toggle" type="button" aria-label="Show Access key" aria-pressed="false">
+      <label for="access-key">Access key</label>
+      <div class="key-input">
+        <input type="password" id="access-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="fak1_…" />
+        <button class="key-toggle" id="key-toggle" type="button" aria-label="Show Access key" aria-pressed="false">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
             <path d="M2.7 12s3.4-5.2 9.3-5.2S21.3 12 21.3 12s-3.4 5.2-9.3 5.2S2.7 12 2.7 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
             <circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7" />
@@ -81,25 +117,26 @@ export function showAccessKeyPrompt(
   `
 
   const form = container.querySelector('form') as HTMLFormElement
-  const passwordInput = container.querySelector('#pw-input') as HTMLInputElement
+  const keyInput = container.querySelector('#access-key') as HTMLInputElement
   const button = container.querySelector('#view-btn') as HTMLButtonElement
-  const passwordToggle = container.querySelector('#password-toggle') as HTMLButtonElement
+  const keyToggle = container.querySelector('#key-toggle') as HTMLButtonElement
   const error = container.querySelector('#error') as HTMLParagraphElement
-  if (notice) {
-    error.textContent = notice
+  const showError = (message: string) => {
+    error.textContent = message
     error.hidden = false
   }
-  passwordInput.focus()
+  if (notice) showError(notice)
+  keyInput.focus()
 
-  passwordToggle.addEventListener('click', () => {
-    const showPassword = passwordInput.type === 'password'
-    const { selectionStart, selectionEnd } = passwordInput
-    passwordInput.type = showPassword ? 'text' : 'password'
-    passwordToggle.setAttribute('aria-label', showPassword ? 'Hide Access key' : 'Show Access key')
-    passwordToggle.setAttribute('aria-pressed', String(showPassword))
-    passwordInput.focus()
+  keyToggle.addEventListener('click', () => {
+    const showKey = keyInput.type === 'password'
+    const { selectionStart, selectionEnd } = keyInput
+    keyInput.type = showKey ? 'text' : 'password'
+    keyToggle.setAttribute('aria-label', showKey ? 'Hide Access key' : 'Show Access key')
+    keyToggle.setAttribute('aria-pressed', String(showKey))
+    keyInput.focus()
     if (selectionStart !== null && selectionEnd !== null) {
-      passwordInput.setSelectionRange(selectionStart, selectionEnd)
+      keyInput.setSelectionRange(selectionStart, selectionEnd)
     }
   })
 
@@ -107,9 +144,9 @@ export function showAccessKeyPrompt(
     event.preventDefault()
     if (button.disabled) return
 
-    if (!passwordInput.value) {
-      error.textContent = EMPTY_KEY_ERROR
-      error.hidden = false
+    const accessKey = readAccessKey(keyInput.value)
+    if (typeof accessKey === 'string') {
+      showError(accessKey)
       return
     }
 
@@ -117,11 +154,10 @@ export function showAccessKeyPrompt(
     button.textContent = 'Decrypting…'
     error.hidden = true
     try {
-      await onSubmit(passwordInput.value)
+      await onSubmit(accessKey)
     } catch (cause) {
-      error.textContent = unlockErrorMessage(cause)
-      error.hidden = false
-      if (cause instanceof WrongPasswordError) passwordInput.select()
+      showError(unlockErrorMessage(cause))
+      if (cause instanceof WrongAccessKeyError) keyInput.select()
     } finally {
       button.disabled = false
       button.textContent = 'Unlock'
@@ -129,7 +165,7 @@ export function showAccessKeyPrompt(
   })
 }
 
-/** Shown while a one-click link opens the share, before there is a tree or a file. */
+/** Shown while a link that carries its Access key opens the share, before there is a tree or a file. */
 export function showDecrypting(container: HTMLElement): void {
   clearCardLabel()
   container.innerHTML = `
@@ -152,6 +188,22 @@ export function showMissingLink(container: HTMLElement): void {
       <p class="lede">Ask the sender for the full protected-share link and open it again.</p>
     </div>
   `
+}
+
+/** A link that can't be opened; `onRetry` adds a "Try again" button (for a share that isn't available yet). */
+export function showLinkError(container: HTMLElement, message: string, onRetry?: () => void): void {
+  clearCardLabel()
+  container.innerHTML = `
+    <div class="missing-link center">
+      ${hero(true)}
+      <p class="eyebrow">Encrypted share</p>
+      <h1>This share can't be opened.</h1>
+      <p class="lede" id="link-error"></p>
+      ${onRetry ? '<button class="btn-primary" id="retry-btn" type="button">Try again</button>' : ''}
+    </div>
+  `
+  ;(container.querySelector('#link-error') as HTMLParagraphElement).textContent = message
+  if (onRetry) container.querySelector('#retry-btn')?.addEventListener('click', onRetry, { once: true })
 }
 
 interface ArchiveTreeNode {

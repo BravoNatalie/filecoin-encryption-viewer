@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DamagedLinkError,
   NotAShareError,
   NotAvailableError,
+  OtherUploadError,
+  ShareExpiredError,
+  ShareModifiedError,
   TooLargeError,
   TooManyEntriesError,
-  WrongPasswordError,
+  WrongAccessKeyError,
 } from '../src/errors.js'
 import { unlockErrorMessage } from '../src/ui.js'
 
 describe('unlockErrorMessage', () => {
-  it('maps WrongPasswordError', () => {
-    expect(unlockErrorMessage(new WrongPasswordError('x'))).toBe(
-      'That Access key could not decrypt this share, or the share was modified. Check it and try again.'
-    )
+  it.each([
+    [new WrongAccessKeyError('x'), "That Access key doesn't open this share. Check it and try again."],
+    [new OtherUploadError('x'), 'This link is for another upload. Ask the sender for the right link.'],
+    [new ShareExpiredError('x'), 'This share has expired. Ask the sender for a new link.'],
+    [new DamagedLinkError('x'), 'This link is damaged. Copy it again, or ask the sender for a new one.'],
+    [new ShareModifiedError('x'), 'This share was modified after it was shared, so it was not opened.'],
+  ])('maps %s', (error, message) => {
+    expect(unlockErrorMessage(error)).toBe(message)
   })
 
   it('maps NotAvailableError', () => {

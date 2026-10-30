@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes } from '../src/format.js'
 import { expectSameBytes } from './fixtures/bytes.js'
 import { stubOpfs } from './fixtures/fake-opfs.js'
-import { PASSWORD, makeShare } from './fixtures/make-share.js'
+import { ACCESS_KEY_TEXT, LINK_DATA, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
 const CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
@@ -24,10 +24,10 @@ const saveButton = () => app().querySelector<HTMLButtonElement>('#save-encrypted
 async function openPage(): Promise<void> {
   vi.resetModules()
   document.body.innerHTML = '<div id="app"></div>'
-  window.location.hash = `#v1/${CID}`
+  window.location.hash = `#v1/${CID}&d=${LINK_DATA}`
   await import('../src/main.js')
-  const input = await waitFor(() => app().querySelector<HTMLInputElement>('#pw-input'))
-  input.value = PASSWORD
+  const input = await waitFor(() => app().querySelector<HTMLInputElement>('#access-key'))
+  input.value = ACCESS_KEY_TEXT
   app()
     .querySelector('form')
     ?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))

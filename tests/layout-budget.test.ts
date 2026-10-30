@@ -7,7 +7,7 @@ import { expect, it } from 'vitest'
 import { NotAShareError, TooManyEntriesError, openProtectedArchive } from '../src/car-archive.js'
 import { unlockErrorMessage } from '../src/ui.js'
 import { LayoutLimitError, encodeVarint, layout } from '../src/unixfs-car-layout.js'
-import { PASSWORD, encryptCar, importFiles, makeShare } from './fixtures/make-share.js'
+import { PAYLOAD, accessKey, encryptCar, importFiles, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
 const CID_STRING = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
@@ -36,7 +36,9 @@ async function expectFastRejection(
   cause: RegExp
 ): Promise<void> {
   const startedAt = performance.now()
-  const error = await openProtectedArchive(CID_STRING, PASSWORD, serveRange(share).fetch).catch((cause) => cause)
+  const error = await openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), serveRange(share).fetch).catch(
+    (cause) => cause
+  )
   expect(error).toBeInstanceOf(expected)
   expect(error.cause.message).toMatch(cause)
   expect(performance.now() - startedAt).toBeLessThan(2000)
@@ -85,15 +87,18 @@ it('rejects deeply nested long names fast, before the paths grow into gigabytes'
     blocks.unshift(chain)
   }
   const startedAt = performance.now()
-  const error = await openProtectedArchive(CID_STRING, PASSWORD, serveRange(await shareOf(blocks)).fetch).catch(
-    (cause) => cause
-  )
+  const error = await openProtectedArchive(
+    CID_STRING,
+    PAYLOAD,
+    accessKey(),
+    serveRange(await shareOf(blocks)).fetch
+  ).catch((cause) => cause)
   expect(error).toBeInstanceOf(TooManyEntriesError)
   expect(error.cause.message).toContain('path too long')
   expect(performance.now() - startedAt).toBeLessThan(2000)
 })
 
-const open = (share: Uint8Array) => openProtectedArchive(CID_STRING, PASSWORD, serveRange(share).fetch)
+const open = (share: Uint8Array) => openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), serveRange(share).fetch)
 const one = (name: string) => [{ path: name, content: new TextEncoder().encode('x') }]
 
 it('accepts a 1024-byte name and rejects a 1025-byte one, counting UTF-8 bytes', async () => {

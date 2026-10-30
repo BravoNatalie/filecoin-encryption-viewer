@@ -16,17 +16,13 @@
   <a href="#credits">Credits</a>
 </p>
 
-A single-file browser viewer for password-encrypted shares made with `filecoin-pin add --encrypt`. The build output is one self-contained `dist/index.html`, published once to IPFS and opened through [inbrowser.link](https://inbrowser.link). Decryption happens entirely in the recipient's browser. There's no server, no analytics and no storage, and the password never leaves the page.
+A single-file browser viewer for encrypted Filecoin Onchain Cloud uploads (`filecoin-pin add --encrypt`), opened from the Share links filecoin-pin mints with [keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith). The build output is one self-contained `dist/index.html`, published once to IPFS and opened through [inbrowser.link](https://inbrowser.link). Decryption happens entirely in the recipient's browser. There's no server, no analytics and no storage, and the Access key never leaves the page.
 
 ## Try it
 
-A working test share, on the Filecoin calibration network:
+A v1 demo share (a Share link from filecoin-pin, on the calibration network) is pending. The earlier demo share used the pre-v1 format, which this viewer no longer opens. Until then, use [Test locally](#test-locally).
 
-**[Open the test share](https://bafkreierah7bnqa4ah5gahnepajuqh3l5etmysc63zqzfegqwlez2deonm.ipfs.inbrowser.link/#v1/bafybeigp62fx6kv7hdluigl4ydlg7ovc7cwx3hvfqksed2zgd4g6nyvsrm)**. Password: `foc-password`
-
-The first visit takes a few seconds while inbrowser.link sets up its service worker. This share's password is public only because it's a demo. For a real share, send the password on a separate channel from the link, never in it.
-
-Please try it in Chrome, Firefox and Safari: open files, preview them, download one, use "Download all", and report anything that looks wrong.
+The first visit takes a few seconds while inbrowser.link sets up its service worker. Please try it in Chrome, Firefox and Safari: open files, preview them, download one, use "Download all", and report anything that looks wrong.
 
 ## Screenshots
 
@@ -35,10 +31,10 @@ Please try it in Chrome, Firefox and Safari: open files, preview them, download 
     <td align="center" width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/unlock-dark.png" />
-        <img src="docs/screenshots/unlock.png" alt="Password prompt" width="420" />
+        <img src="docs/screenshots/unlock.png" alt="Access key prompt" width="420" />
       </picture>
       <br />
-      <sub>The password prompt</sub>
+      <sub>The Access key prompt</sub>
     </td>
     <td align="center" width="50%">
       <picture>
@@ -53,25 +49,42 @@ Please try it in Chrome, Firefox and Safari: open files, preview them, download 
 
 ## Origin
 
-Taken from Jenni's [`packages/foc-viewer`](https://github.com/jennijuju/foc-encryption-demo/tree/7d5119b/packages/foc-viewer) in `jennijuju/foc-encryption-demo` at commit `7d5119b`. The rendering, sandbox, save and folder UI come from there. The archive format and the key handling have been ported to filecoin-pin's encryption format.
+Taken from Jenni's [`packages/foc-viewer`](https://github.com/jennijuju/foc-encryption-demo/tree/7d5119b/packages/foc-viewer) in `jennijuju/foc-encryption-demo` at commit `7d5119b`. The rendering, sandbox, save and folder UI come from there. The archive format and the key handling have been ported to filecoin-pin's encryption format and keysmith Share links.
 
 ## Usage
 
 ```text
-https://<viewer-cid>.ipfs.inbrowser.link/#v1/<encrypted-root-cid>
+https://<viewer-cid>.ipfs.inbrowser.link/#v1/<encrypted-root-cid>&d=<payload>[&k=fak1_<access key>]
 ```
 
-The fragment carries only the Encrypted root CID. The password is sent to the recipient on a separate channel and typed into the page. A link that carries anything else after `#v1/<cid>` (apart from the optional parameters below) is rejected with an incomplete-link message.
+This is exactly what filecoin-pin's `formatShareLink` writes (filecoin-pin#779). Everything is in the fragment, so nothing reaches a server, and every value is base64url without padding.
 
-### One-click links
+- `d` is the keysmith payload: the upload's key wrapped to a throwaway secp256k1 key T that the sender made for this link. It's one of two kinds, told apart by the CBOR type of its first byte:
+  - a **Delivery** (`encodeDelivery`, a CBOR array) from owner mode: an owner-signed claim chain naming T's address as its bearer, with an expiry, plus the wrapped key;
+  - a **plain piece grant** (`encodeGrant`, a CBOR map) from session-key mode: the wrapped key alone.
+- `k` is the **Access key**: `fak1_` plus the 32 bytes of T's private key (43 characters). An open link carries it; a restricted link doesn't, and the sender sends the Access key separately.
 
-An optional link carries the share's key instead of asking for the password:
+The viewer accepts `d` then `k` in that order, `d` up to 8192 characters, and nothing else. A link with any other parameter, a repeated one, a missing or empty `d`, or bad base64url gets the incomplete-link message.
 
-```text
-https://<viewer-cid>.ipfs.inbrowser.link/#v1/<encrypted-root-cid>&k=fak1_<43 characters>
-```
+### Opening a link
 
-`k` is `fak1_` plus the base64url (no padding) of the 32-byte key the password derives. The key opens only this share (every upload has its own salt) and never reveals the password, but whoever holds the link can open the share, so it is opt-in. The viewer opens the share with the key and no prompt, and clears the key from the address bar before it fetches anything, so a reload or a copy of the address no longer carries it. If the key doesn't work, it falls back to the password prompt. Make one from an envelope file with `pnpm key-link <envelope-file> [--password <pw>] [--viewer <viewer-cid>] [--cid <encrypted-root-cid>]` (the password defaults to `dev-password`); `pnpm dev:share` prints the one-click dev link next to the normal one.
+With `k`, the viewer clears it from the address bar (keeping `d`) before it fetches anything, so a reload or a copy of the address no longer carries the key, then opens the share with no prompt. If the key doesn't work it falls back to the prompt with a notice. Without `k`, it asks for the Access key and checks the pasted text first: whitespace is dropped, and a group key Grant (`fgr1_…`), a Share link, text without `fak1_` or a key of the wrong length is refused with its own message before anything else happens.
+
+1. **Open the payload, before any request.** A Delivery goes through keysmith's `openDelivery` (chain signatures, expiry, T as the bearer, the key commitment, the grant naming the claim). A plain grant is unwrapped with `unwrapWith`. The grant must name one piece (`piece:<salt>`); a keyspace or scope grant is refused. A wrong Access key fails here, with nothing fetched.
+2. **Read the envelope header** with Range requests: a chunked FEE envelope of a CAR.
+3. **Derive the piece key** with `keyForEnvelope`, which checks the envelope's keysmith labels (owner, keyspace, salt) against the grant. The node key and T's bytes are zeroed once used; the piece key is zeroed when the share is closed, or on any failure.
+4. **Read files** with `decryptRange`, as before.
+
+| Case | Message |
+|---|---|
+| Wrong Access key (doesn't unwrap, not the Delivery's bearer, or not a valid private key) | That Access key doesn't open this share |
+| The payload is for another upload than the envelope at this CID | This link is for another upload |
+| The Delivery has expired | This share has expired |
+| The payload isn't a valid grant or Delivery, or a signature fails | This link is damaged |
+| A chunk fails authentication (the ciphertext was modified) | This share was modified |
+| The envelope has no keysmith labels, or isn't what `add --encrypt` writes | This link doesn't point to a filecoin-pin encrypted share |
+
+No message names anything from inside the envelope.
 
 The viewer fetches `https://<encrypted-root-cid>.ipfs.dweb.link/` with HTTP Range requests. inbrowser.link's service worker intercepts that request and serves it from the storage providers through IPNI, so the viewer only works when opened at an inbrowser.link origin. A share opened before IPNI has caught up shows "not available yet".
 
@@ -89,11 +102,10 @@ outer CAR (public, IPNI)  ── UnixFS file, root = Encrypted root CID
 ```
 
 - The envelope's `content_type` is `application/vnd.ipld.car`. The inner CAR lists every directory and file node before any file data, so the viewer knows the whole tree, and every file's byte ranges, from the first few hundred KB.
-- The key is PBKDF2-SHA256 over the password. The envelope's authenticated `appMetadata` is exactly `{ "kdf": "pbkdf2-sha256", "iterations": 600000, "salt": "<base64 of 16 bytes>" }`.
-- The viewer validates these fields before deriving anything, and rejects more than 10,000,000 iterations.
+- The envelope's authenticated `appMetadata` holds keysmith's piece labels (`pieceMetadata`): `foc/v` (1), `foc/own`, `foc/ks`, optionally `foc/scope`, and `foc/salt`. The piece key is derived from the keyspace key and the salt, so every upload has its own key, and a Share link opens only its own upload.
 - File and folder names exist only inside the ciphertext. The on-chain piece name is `encrypted.fee`.
 
-The key derivation and the CAR layout are copies of filecoin-pin's (`src/common/encryption.ts`, `src/common/unixfs-car-layout.ts`); the layout copy adds the limits listed below. A known-answer test keeps the key derivation in step. A shared golden envelope from filecoin-pin will be added once filecoin-pin #772 merges.
+Key handling is [`@filoz/keysmith`](https://www.npmjs.com/package/@filoz/keysmith) 0.1.0 (with `viem`). The CAR layout is a copy of filecoin-pin's `src/common/unixfs-car-layout.ts`, with the limits listed below.
 
 ## Content rendering
 
@@ -154,24 +166,25 @@ pnpm build
 `pnpm dev` alone has nothing to open. Make a local share first, then start the dev server:
 
 ```sh
-pnpm dev:share ./some-folder   # or a single file; add --password <pw> to change dev-password
+pnpm dev:share ./some-folder   # or a single file
 pnpm dev
 ```
 
-Open the printed URL (`http://localhost:5173/#v1/<cid>`). The dev server answers the share's Range requests from `dev/share.fee` and relaxes the page CSP for Vite; neither exists in `pnpm build`, which fails if either leaks into `dist/index.html`. In dev, the console also logs `[foc-viewer dev]` timings for each unlock, file open and range request.
+It prints, for a plain grant and for a Delivery (valid for an hour), the link without its key, the Access key on its own line, and the link with `&k=`. The share and the keys are made from fixed dev keys (`tests/fixtures/make-share.ts`). The dev server answers the share's Range requests from `dev/share.fee` and relaxes the page CSP for Vite; neither exists in `pnpm build`, which fails if either leaks into `dist/index.html`. In dev, the console also logs `[foc-viewer dev]` timings for each unlock, file open and range request.
 
 | State | How to trigger |
 |---|---|
-| Wrong password | Enter anything other than the printed password |
+| Wrong Access key | Enter any other `fak1_` key, or change a character of the printed one |
+| Prompt-side checks | Paste a Share link, a `fgr1_` Grant, or a key without its prefix |
 | Not available | Delete `dev/share.fee`, then submit |
-| Can't be opened in the browser | Add `?ignore-range` before the `#` (`http://localhost:5173/?ignore-range#v1/<cid>`); the dev server then answers `200` with the whole file |
+| Can't be opened in the browser | Add `?ignore-range` before the `#` (`http://localhost:5173/?ignore-range#v1/<cid>&d=…`); the dev server then answers `200` with the whole file |
 | Incomplete link | Use any other fragment, for example `#nope` |
 
 The real path (the inbrowser.link service worker fetching `https://<cid>.ipfs.dweb.link/`) can only be tested on the published Viewer.
 
 ## Verifiable build
 
-Recipients trust this page with their password, so anyone should be able to check that a Viewer CID was built from this source. The build is reproducible: lockfile, pinned Node and pnpm, and no timestamps in the output.
+Recipients trust this page with their Access key, so anyone should be able to check that a Viewer CID was built from this source. The build is reproducible: lockfile, pinned Node and pnpm, and no timestamps in the output.
 
 ```sh
 git checkout <commit>
@@ -188,21 +201,20 @@ The mainnet Viewer will be published once, after filecoin-pin's `--encrypt` and 
 
 ## Modules
 
-1. `fragment.ts` parses `#v1/<cid>` fragments.
-2. `password-key.ts` validates the key-derivation metadata and derives the key from the password.
-3. `range-source.ts` reads the share with Range requests (`no-store`, `206` only, never byte 0).
-4. `unixfs-car-layout.ts` computes the tree and every block's offset from the metadata-first CAR, within the limits above.
-5. `car-archive.ts` decrypts the metadata, builds the entry list, and streams a file's ranges in batches.
-6. `errors.ts` holds the error classes the UI maps to messages.
-7. `decrypt.ts` bounds inline entry collection.
-8. `sandbox.ts` creates the locked HTML iframe.
-9. `save.ts` picks the save path (dialog, OPFS, or in-memory), and `opfs-save.ts` stages files in OPFS.
-10. `render.ts` renders bounded content and the file views.
-11. `file-type.ts` maps sniffed MIME types to friendly labels, and `format.ts` formats byte sizes.
-12. `zip.ts` streams the "Download all" ZIP from the open archive (with [`client-zip`](https://github.com/Touffy/client-zip)).
-13. `card-label.ts` manages the label above the card and the card layout per screen.
-14. `ui.ts` owns the password prompt and retry, the folder tree, and the save, too-large, not-available and can't-be-opened states.
-15. `main.ts` connects the link, password, archive, entry and renderer paths.
+1. `fragment.ts` parses `#v1/<cid>&d=…[&k=…]` fragments and the `fak1_` Access key text.
+2. `range-source.ts` reads the share with Range requests (`no-store`, `206` only, never byte 0).
+3. `unixfs-car-layout.ts` computes the tree and every block's offset from the metadata-first CAR, within the limits above.
+4. `car-archive.ts` opens the link's payload with keysmith, derives the piece key, decrypts the metadata, builds the entry list, and streams a file's ranges in batches.
+5. `errors.ts` holds the error classes the UI maps to messages.
+6. `decrypt.ts` bounds inline entry collection.
+7. `sandbox.ts` creates the locked HTML iframe.
+8. `save.ts` picks the save path (dialog, OPFS, or in-memory), and `opfs-save.ts` stages files in OPFS.
+9. `render.ts` renders bounded content and the file views.
+10. `file-type.ts` maps sniffed MIME types to friendly labels, and `format.ts` formats byte sizes.
+11. `zip.ts` streams the "Download all" ZIP from the open archive (with [`client-zip`](https://github.com/Touffy/client-zip)).
+12. `card-label.ts` manages the label above the card and the card layout per screen.
+13. `ui.ts` owns the Access key prompt (with its local checks) and retry, the folder tree, and the save, too-large, not-available and can't-be-opened states.
+14. `main.ts` connects the link, Access key, archive, entry and renderer paths.
 
 ## Credits
 

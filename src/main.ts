@@ -1,7 +1,7 @@
 import type { ProtectedArchive, ProtectedEntry } from './car-archive.js'
 import { openProtectedArchive } from './car-archive.js'
 import { MAX_BINARY_PREVIEW_BYTES, MAX_DOCUMENT_PREVIEW_BYTES, readEntryPrefix, readInlineEntry } from './decrypt.js'
-import { RangeUnsupportedError, WrongPasswordError } from './errors.js'
+import { NotAvailableError, RangeUnsupportedError, WrongAccessKeyError } from './errors.js'
 import { parseFragment } from './fragment.js'
 import { removeOwnStagedFiles, removeStagedFiles } from './opfs-save.js'
 import {
@@ -17,6 +17,7 @@ import {
   addBackButton,
   showAccessKeyPrompt,
   showDecrypting,
+  showLinkError,
   showMissingLink,
   showProtectedArchive,
   showRangeUnsupported,
@@ -175,35 +176,22 @@ function devFetch(): typeof fetch {
   }
 }
 
-// openProtectedArchive derives the key internally, so time the Web Crypto call itself.
-function devTimeKeyDerivation(): void {
-  const original = crypto.subtle.deriveBits.bind(crypto.subtle)
-  crypto.subtle.deriveBits = async (...args: Parameters<typeof original>) => {
-    const startedAt = performance.now()
-    try {
-      return await original(...args)
-    } finally {
-      devLog(`key derivation (PBKDF2): ${elapsed(startedAt)}`)
-    }
-  }
-}
-if (import.meta.env.DEV) devTimeKeyDerivation()
-
-async function unlockArchive(cid: string, secret: string | Uint8Array): Promise<void> {
+async function unlockArchive(cid: string, payload: Uint8Array, accessKey: Uint8Array): Promise<void> {
   try {
-    await unlock(cid, secret)
+    await unlock(cid, payload, accessKey)
   } catch (error) {
     if (!(error instanceof RangeUnsupportedError)) throw error
     showRangeIgnored(error.response)
   }
 }
 
-async function unlock(cid: string, secret: string | Uint8Array): Promise<void> {
+async function unlock(cid: string, payload: Uint8Array, accessKey: Uint8Array): Promise<void> {
   const startedAt = performance.now()
   const archive = import.meta.env.DEV
-    ? await openProtectedArchive(cid, secret, devFetch())
-    : await openProtectedArchive(cid, secret)
-  if (import.meta.env.DEV) devLog(`archive ready (head + metadata + decrypt + listing): ${elapsed(startedAt)}`)
+    ? await openProtectedArchive(cid, payload, accessKey, devFetch())
+    : await openProtectedArchive(cid, payload, accessKey)
+  if (import.meta.env.DEV)
+    devLog(`archive ready (payload + head + metadata + decrypt + listing): ${elapsed(startedAt)}`)
   await activeArchive?.close()
   activeArchive = archive
   const entries = archive.list()
@@ -222,31 +210,53 @@ async function unlock(cid: string, secret: string | Uint8Array): Promise<void> {
 
 const KEY_FAILED_MESSAGE = "The key in this link didn't work. Enter the Access key you received instead."
 
-// A one-click link carries the share's key: open with it, and fall back to the Access key prompt if that fails.
-async function unlockWithKey(cid: string, key: Uint8Array): Promise<void> {
+// The key from a link, kept only so "Try again" can reuse it: the address bar no longer has it. Zeroed once done.
+let linkKey: Uint8Array | undefined
+
+function forgetLinkKey(): void {
+  linkKey?.fill(0)
+  linkKey = undefined
+}
+
+// The link carries its Access key: open with a copy of it (openProtectedArchive zeroes what it gets). A wrong key falls
+// back to the prompt; a share that isn't available yet can be retried with the same key; anything else is final.
+async function unlockWithKey(cid: string, payload: Uint8Array, accessKey: Uint8Array): Promise<void> {
+  linkKey = accessKey
   showDecrypting(container)
   try {
-    await unlockArchive(cid, key)
+    await unlockArchive(cid, payload, accessKey.slice())
   } catch (error) {
-    const notice = error instanceof WrongPasswordError ? KEY_FAILED_MESSAGE : unlockErrorMessage(error)
-    showAccessKeyPrompt(container, (password) => unlockArchive(cid, password), notice)
+    if (error instanceof NotAvailableError) {
+      showLinkError(container, unlockErrorMessage(error), () => void unlockWithKey(cid, payload, accessKey))
+      return
+    }
+    forgetLinkKey()
+    if (error instanceof WrongAccessKeyError) {
+      showAccessKeyPrompt(container, (key) => unlockArchive(cid, payload, key), KEY_FAILED_MESSAGE)
+    } else {
+      showLinkError(container, unlockErrorMessage(error))
+    }
+    return
   }
+  forgetLinkKey()
 }
 
 function init(): void {
-  const fragment = parseFragment(window.location.hash)
+  const hash = window.location.hash
+  const fragment = parseFragment(hash)
   if (!fragment) {
     showMissingLink(container)
     return
   }
 
-  if (fragment.key) {
-    // Before any request: a reload or a copy of the address no longer carries the key
-    history.replaceState(null, '', `#v1/${fragment.cid}`)
-    void unlockWithKey(fragment.cid, fragment.key)
+  const { cid, payload, key } = fragment
+  if (key) {
+    // Before any request: a reload or a copy of the address no longer carries the key. `k` is always last.
+    history.replaceState(null, '', hash.slice(0, hash.indexOf('&k=')))
+    void unlockWithKey(cid, payload, key)
     return
   }
-  showAccessKeyPrompt(container, (password) => unlockArchive(fragment.cid, password))
+  showAccessKeyPrompt(container, (accessKey) => unlockArchive(cid, payload, accessKey))
 }
 
 window.addEventListener(
@@ -255,6 +265,7 @@ window.addEventListener(
     const archive = activeArchive
     activeArchive = undefined
     void archive?.close()
+    forgetLinkKey()
     revokePdfObjectUrls()
     revokeStagedUrl()
     void removeOwnStagedFiles()

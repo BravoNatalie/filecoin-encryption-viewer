@@ -1,13 +1,13 @@
 # AGENTS.md
 
-A single-file browser viewer for password-encrypted Filecoin Onchain Cloud shares (`filecoin-pin add --encrypt`). See README.md for the format, behaviour and limits.
+A single-file browser viewer for encrypted Filecoin Onchain Cloud uploads (`filecoin-pin add --encrypt`), opened from keysmith Share links (`#v1/<cid>&d=…[&k=fak1_…]`). See README.md for the format, behaviour and limits.
 
 ## Commands
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm typecheck && pnpm test && pnpm build && pnpm exec biome check .
-pnpm dev:share <file-or-folder>   # writes dev/share.fee, then: pnpm dev
+pnpm dev:share <file-or-folder>   # writes dev/share.fee and prints links, then: pnpm dev
 ```
 
 All four checks must pass before work is done. `pnpm build` runs `scripts/check-dist.mjs`, which fails if the built CSP differs from `index.html` or any dev code leaks into `dist/index.html`.
@@ -33,7 +33,7 @@ All four checks must pass before work is done. `pnpm build` runs `scripts/check-
 - **OPFS:**
   - write exactly sized buffers only (`exactBytes`), because WebKit writes a view's whole underlying buffer;
   - never delete a staged file that's locked.
-- **Copied files:** `password-key.ts` and `unixfs-car-layout.ts` are copied from filecoin-pin and marked with `ponytail:` notes. Keep them in step with filecoin-pin, and note any deliberate difference in the file header.
+- **Copied files:** `unixfs-car-layout.ts` is copied from filecoin-pin and marked with a `ponytail:` note. Keep it in step with filecoin-pin, and note any deliberate difference in the file header. Key handling is `@filoz/keysmith`; the link codec in `fragment.ts` must match filecoin-pin's `src/common/share-link.ts`.
 - **Tests:** compare large byte arrays with `expectSameBytes` (`tests/fixtures/bytes.ts`), not `toEqual`, which takes seconds per MiB. Give a test its own timeout only when it does real work.
 - **Style:** Biome (`biome.json`, line width 120). Small, boring code. Mark deliberate shortcuts with a `ponytail:` comment naming the limit and the upgrade path.
 - **Don't commit** `dev/`, `dist/` or local test folders. They're gitignored.

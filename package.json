@@ -13,18 +13,19 @@
     "dev": "vite",
     "build": "vite build && node scripts/check-dist.mjs",
     "dev:share": "node scripts/dev-share.ts",
-    "key-link": "node scripts/key-link.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@filoz/keysmith": "0.1.0",
     "@ipld/dag-cbor": "10.0.1",
     "@ipld/dag-pb": "4.1.7",
     "client-zip": "2.5.1",
     "filecoin-encryption-envelope": "0.1.0",
     "ipfs-unixfs": "12.0.2",
     "magic-bytes.js": "^1.13.0",
-    "multiformats": "14.0.5"
+    "multiformats": "14.0.5",
+    "viem": "2.55.19"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",

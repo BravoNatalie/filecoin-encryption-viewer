@@ -14,7 +14,7 @@ if (csp(dist) !== source) problems.push(`dist CSP differs from source:\n  dist: 
 const extra = readdirSync(new URL('../dist/', import.meta.url)).filter((name) => name !== 'index.html')
 if (extra.length > 0)
   problems.push(`dist has files besides index.html (the build must be one file): ${extra.join(', ')}`)
-for (const marker of ['__dev-share', 'devcap', '[foc-viewer dev]', 'key-link']) {
+for (const marker of ['__dev-share', 'devcap', '[foc-viewer dev]']) {
   if (dist.includes(marker)) problems.push(`dist/index.html contains dev marker "${marker}"`)
 }
 

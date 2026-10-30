@@ -4,7 +4,7 @@ import { TooLargeError } from '../src/errors.js'
 import { saveEntry } from '../src/save.js'
 import { archiveZip, summarizeArchive, zipFileName } from '../src/zip.js'
 import { stubDownload, stubOpfs } from './fixtures/fake-opfs.js'
-import { PASSWORD, makeShare } from './fixtures/make-share.js'
+import { PAYLOAD, accessKey, makeShare } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 
 const CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3udhvy6o2x4i5woy4vgr3vnz4'
@@ -46,7 +46,7 @@ it('zips an open archive with full entry paths, directories and exact bytes', as
     { path: 'sample/note.txt', content: text('hello zip') },
     { path: 'sample/docs/report.txt', content: text('nested report') },
   ])
-  const archive = await openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
+  const archive = await openProtectedArchive(CID, PAYLOAD, accessKey(), serveRange(share).fetch)
 
   expect(summarizeArchive(archive)).toEqual({ files: 2, bytes: 9 + 13 })
   expect(zipFileName(archive)).toBe('sample.zip')
@@ -74,7 +74,7 @@ async function openSample() {
     { path: 'sample/note.txt', content: text('hello zip') },
     { path: 'sample/docs/report.txt', content: text('nested report') },
   ])
-  return openProtectedArchive(CID, PASSWORD, serveRange(share).fetch)
+  return openProtectedArchive(CID, PAYLOAD, accessKey(), serveRange(share).fetch)
 }
 
 it('refuses to zip more than the in-memory cap when it can only use the Blob', async () => {

@@ -1,15 +1,28 @@
+import {
+  type Grant,
+  decodeDelivery,
+  decodeGrant,
+  keyForEnvelope,
+  openDelivery,
+  publicKeyOf,
+  unwrapWith,
+} from '@filoz/keysmith'
 import { decode as decodeCbor } from '@ipld/dag-cbor'
 import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
+import { bytesToHex } from 'viem'
 import {
+  DamagedLinkError,
   NotAShareError,
   NotAvailableError,
+  OtherUploadError,
   RangeUnsupportedError,
+  ShareExpiredError,
+  ShareModifiedError,
   TooLargeError,
   TooManyEntriesError,
-  WrongPasswordError,
+  WrongAccessKeyError,
 } from './errors.js'
-import { derivePasswordKey, validateKdfMetadata } from './password-key.js'
 import { openRangeSource } from './range-source.js'
 import {
   CAR_CONTENT_TYPE,
@@ -22,12 +35,16 @@ import {
 import type { FileLeaf, FilePlacement, MetadataNode } from './unixfs-car-layout.js'
 
 export {
-  TooManyEntriesError,
+  DamagedLinkError,
   NotAShareError,
   NotAvailableError,
+  OtherUploadError,
   RangeUnsupportedError,
+  ShareExpiredError,
+  ShareModifiedError,
   TooLargeError,
-  WrongPasswordError,
+  TooManyEntriesError,
+  WrongAccessKeyError,
 }
 
 const CID_PATTERN = /^b[a-z2-7]{20,120}$/
@@ -59,36 +76,108 @@ interface Reader {
 }
 
 /**
- * `secret` is the password, or the 32-byte key of a one-click link (the same key a password derives). The archive
- * takes ownership of a key: it is zeroed on close(), or here if opening fails.
+ * Opens a share from a link's keysmith `payload` and its Access key (the 32-byte private key T the payload is wrapped
+ * to). The payload is opened before any request, so a wrong key fails with nothing fetched. `accessKey` is zeroed
+ * here; the archive owns the piece key and zeroes it on close(), or here if opening fails.
  */
 export async function openProtectedArchive(
   cid: string,
-  secret: string | Uint8Array,
+  payload: Uint8Array,
+  accessKey: Uint8Array,
   fetchFn: typeof fetch = fetch
 ): Promise<ProtectedArchive> {
-  if (!CID_PATTERN.test(cid)) throw new Error('Invalid encrypted Root CID')
+  let opened: { key: Uint8Array; grant: Grant }
+  try {
+    if (!CID_PATTERN.test(cid)) throw new Error('Invalid encrypted Root CID')
+    opened = await openPayload(payload, accessKey)
+  } finally {
+    accessKey.fill(0)
+  }
 
-  let key = typeof secret === 'string' ? undefined : secret
+  let nodeKey: Uint8Array | undefined = opened.key
+  let key: Uint8Array | undefined
   try {
     const source = await openRangeSource(`https://${cid}.ipfs.dweb.link/`, fetchFn)
     const info = await fee.parse(source)
     if (info.scheme !== 'chunked' || info.contentType !== CAR_CONTENT_TYPE || !info.params.plaintextLength) {
       throw new NotAShareError()
     }
-    if (typeof secret === 'string') {
-      const { salt, iterations } = validateKdfMetadata(info.appMetadata)
-      key = await derivePasswordKey(secret, salt, iterations)
-    }
+    key = pieceKeyFor(nodeKey, info.appMetadata, opened.grant)
+    nodeKey.fill(0)
+    nodeKey = undefined
     // From here the archive owns the key; close() zeroes it
-    return await buildArchive({ source, key: key as Uint8Array, params: info.params })
+    return await buildArchive({ source, key, params: info.params })
   } catch (error) {
+    nodeKey?.fill(0)
     key?.fill(0)
-    // A key from a link can be anything well-formed, including all zeros, which FEE refuses: same as a wrong key
-    if (typeof secret !== 'string' && error instanceof errors.InvalidKeyError) {
-      throw new WrongPasswordError('The key did not work', { cause: error })
-    }
+    // A grant can wrap any 32 bytes, including all zeros, which FEE refuses
+    if (error instanceof errors.InvalidKeyError)
+      throw new DamagedLinkError('The link holds an unusable key', { cause: error })
     throw mapError(error)
+  }
+}
+
+// CBOR major type of the first byte: 4 (array) is a Delivery, 5 (map) a plain piece grant
+const DELIVERY = 4
+const GRANT = 5
+
+/** The piece's node key and the grant naming it. Every failure here happens before any request. */
+async function openPayload(payload: Uint8Array, accessKey: Uint8Array): Promise<{ key: Uint8Array; grant: Grant }> {
+  // ponytail: T's hex string can't be zeroed; only its bytes are
+  const T = bytesToHex(accessKey)
+  try {
+    publicKeyOf(T)
+  } catch (cause) {
+    throw new WrongAccessKeyError('Not a secp256k1 private key', { cause })
+  }
+
+  const kind = payload[0] >> 5
+  let grant: Grant
+  try {
+    if (kind === DELIVERY) grant = decodeDelivery(payload).grant
+    else if (kind === GRANT) grant = decodeGrant(payload)
+    else throw new Error('Neither a Delivery nor a grant')
+  } catch (cause) {
+    throw new DamagedLinkError('The link payload is not a keysmith grant or Delivery', { cause })
+  }
+  // A keyspace or scope grant opens more than one upload: a Share link never carries one
+  if (!grant.node.startsWith('piece:')) throw new NotAShareError()
+
+  if (kind === GRANT) {
+    try {
+      return { key: await unwrapWith(T, grant), grant }
+    } catch (cause) {
+      throw new WrongAccessKeyError('The Access key does not open this grant', { cause })
+    }
+  }
+  try {
+    const { key, grant: named } = await openDelivery(T, payload)
+    return { key, grant: named }
+  } catch (cause) {
+    throw deliveryError(cause)
+  }
+}
+
+// openDelivery throws plain Errors; these messages are keysmith 0.1.0's (claims.ts verifyChain and openDelivery).
+// Anything else is a damaged link: a bad signature, or a grant that doesn't unwrap or match its commitment even though
+// the chain names this key as its bearer.
+function deliveryError(cause: unknown): Error {
+  const message = cause instanceof Error ? cause.message : ''
+  if (message.startsWith('The chain expired at')) return new ShareExpiredError('The share has expired', { cause })
+  if (message === 'This delivery is for another bearer') {
+    return new WrongAccessKeyError('The Access key is not the Delivery bearer', { cause })
+  }
+  return new DamagedLinkError('The Delivery does not verify', { cause })
+}
+
+/** keyForEnvelope checks the envelope's owner, keyspace and salt against the grant. */
+function pieceKeyFor(nodeKey: Uint8Array, appMetadata: fee.AppMetadata | undefined, grant: Grant): Uint8Array {
+  const metadata = (appMetadata ?? {}) as Record<string, unknown>
+  if (metadata['foc/v'] !== 1 || typeof metadata['foc/ks'] !== 'string') throw new NotAShareError()
+  try {
+    return keyForEnvelope(nodeKey, metadata, grant)
+  } catch (cause) {
+    throw new OtherUploadError('The link is for another upload', { cause })
   }
 }
 
@@ -98,7 +187,7 @@ const { errors } = fee
 // InvalidRangeError, base EnvelopeError) are programmer or platform errors and propagate unchanged.
 function mapError(error: unknown): unknown {
   if (error instanceof errors.AuthenticationError) {
-    return new WrongPasswordError('Wrong key, or the share was modified', { cause: error })
+    return new ShareModifiedError('The share was modified', { cause: error })
   }
   if (
     error instanceof errors.InvalidCiphertextLengthError ||
@@ -117,8 +206,7 @@ function mapError(error: unknown): unknown {
     error instanceof errors.InvalidNonceError ||
     error instanceof errors.NoUsableRecipientError ||
     error instanceof errors.RecipientUnwrapError ||
-    error instanceof errors.RecipientAttemptLimitError ||
-    (error instanceof Error && error.message === 'missing or unsupported key derivation parameters')
+    error instanceof errors.RecipientAttemptLimitError
   ) {
     return new NotAShareError({ cause: error })
   }

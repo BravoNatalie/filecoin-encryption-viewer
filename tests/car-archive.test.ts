@@ -1,20 +1,34 @@
+import { decodeDelivery } from '@filoz/keysmith'
 import { encode as encodeCbor } from '@ipld/dag-cbor'
 import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import * as digest from 'multiformats/hashes/digest'
 import { sha256 } from 'multiformats/hashes/sha2'
+import { hexToBytes } from 'viem'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  DamagedLinkError,
   NotAShareError,
   NotAvailableError,
+  OtherUploadError,
   RangeUnsupportedError,
-  WrongPasswordError,
+  ShareExpiredError,
+  ShareModifiedError,
+  WrongAccessKeyError,
   openProtectedArchive,
 } from '../src/car-archive.js'
 import type { ProtectedArchive } from '../src/car-archive.js'
 import { encodeVarint } from '../src/unixfs-car-layout.js'
 import { expectSameBytes } from './fixtures/bytes.js'
-import { PASSWORD, encryptCar, makeShare } from './fixtures/make-share.js'
+import {
+  PAYLOAD,
+  accessKey,
+  delivery,
+  encryptCar,
+  keyspaceGrant,
+  makeShare,
+  plainGrant,
+} from './fixtures/make-share.js'
 import type { ShareFile } from './fixtures/make-share.js'
 import { serveRange } from './fixtures/serve-range.js'
 import type { StubMode } from './fixtures/serve-range.js'
@@ -40,7 +54,7 @@ const requested = (stub: { requests: { length: number }[] }, from = 0) =>
 
 async function open(share: Uint8Array, mode: StubMode = 'range') {
   const stub = serveRange(share, mode)
-  return { stub, archive: await openProtectedArchive(CID_STRING, PASSWORD, stub.fetch) }
+  return { stub, archive: await openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), stub.fetch) }
 }
 
 const folder: ShareFile[] = [
@@ -103,11 +117,6 @@ describe('openProtectedArchive', () => {
     expect(stub.requests.length).toBeGreaterThan(1)
     expect(await readAll(await archive.open('many/f5999'))).toEqual(bytes('n5999'))
   }, 30_000) // builds a 6000-entry share; real work, not assertion time
-
-  it('works at the real 600000 iterations', async () => {
-    const { archive } = await open(await makeShare([{ path: 'a.txt', content: bytes('x') }], { iterations: 600_000 }))
-    expect(archive.list()[0].path).toBe('a.txt')
-  })
 })
 
 describe('range reads', () => {
@@ -173,7 +182,7 @@ describe('range reads', () => {
       ranges.push(new Headers(init?.headers).get('range') ?? '')
       return stub.fetch(input, init)
     }) as typeof fetch
-    const archive = await openProtectedArchive(CID_STRING, PASSWORD, fetchFn)
+    const archive = await openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), fetchFn)
     expectSameBytes(await readAll(await archive.open('mix/big.bin')), big)
     expect(await readAll(await archive.open('mix/small.txt'))).toEqual(bytes('small file'))
 
@@ -210,26 +219,122 @@ describe('range reads', () => {
   })
 })
 
-describe('password and integrity', () => {
-  it('rejects a wrong password, then accepts the right one', async () => {
-    const stub = serveRange(await makeShare(folder))
-    await expect(openProtectedArchive(CID_STRING, 'nope', stub.fetch)).rejects.toBeInstanceOf(WrongPasswordError)
-    expect((await openProtectedArchive(CID_STRING, PASSWORD, stub.fetch)).list()).toHaveLength(4)
+const OTHER_T = `0x${'44'.repeat(32)}` as const
+const OTHER_SALT = `0x${'08'.repeat(16)}` as const
+const N = 'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141'
+
+function indexOf(haystack: Uint8Array, needle: Uint8Array): number {
+  for (let at = 0; at <= haystack.length - needle.length; at++) {
+    if (needle.every((byte, index) => haystack[at + index] === byte)) return at
+  }
+  throw new Error('needle not found')
+}
+
+const flipped = (payload: Uint8Array, at: number) => {
+  const copy = new Uint8Array(payload)
+  copy[at] ^= 1
+  return copy
+}
+
+// Opens with a fetch spy, so a test can assert that nothing was fetched
+async function openWith(payload: Uint8Array, key = accessKey()) {
+  const stub = serveRange(await makeShare(folder))
+  const fetchFn = vi.fn(stub.fetch)
+  const result = await openProtectedArchive(CID_STRING, payload, key, fetchFn).catch((cause: unknown) => cause)
+  return { result, fetchFn }
+}
+
+describe('link payload', () => {
+  it.each([
+    ['a plain grant', plainGrant],
+    ['a Delivery', delivery],
+  ])('opens with %s and zeroes the Access key', async (_, make) => {
+    const key = accessKey()
+    const { result } = await openWith(await make(), key)
+    expect((result as ProtectedArchive).list()).toHaveLength(4)
+    expectSameBytes(key, new Uint8Array(32))
   })
 
+  it.each([
+    ['a plain grant', plainGrant],
+    ['a Delivery', delivery],
+  ])('refuses a wrong Access key for %s before any fetch, and zeroes it', async (_, make) => {
+    const key = accessKey(OTHER_T)
+    const { result, fetchFn } = await openWith(await make(), key)
+    expect(result).toBeInstanceOf(WrongAccessKeyError)
+    expect(fetchFn).not.toHaveBeenCalled()
+    expectSameBytes(key, new Uint8Array(32))
+  })
+
+  it.each([
+    ['zero', new Uint8Array(32)],
+    ['the group order', hexToBytes(`0x${N}`)],
+  ])('refuses an Access key that is not a valid private key (%s) before any fetch', async (_, key) => {
+    const { result, fetchFn } = await openWith(PAYLOAD, key)
+    expect(result).toBeInstanceOf(WrongAccessKeyError)
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a plain grant', plainGrant],
+    ['a Delivery', delivery],
+  ])("refuses %s for upload A against upload B's envelope as another upload", async (_, make) => {
+    const { result, fetchFn } = await openWith(await make({ salt: OTHER_SALT }))
+    expect(result).toBeInstanceOf(OtherUploadError)
+    expect(fetchFn).toHaveBeenCalled()
+  })
+
+  it('refuses an expired Delivery before any fetch', async () => {
+    const expires = Math.floor(Date.now() / 1000) - 3600
+    const { result, fetchFn } = await openWith(await delivery({ expires }))
+    expect(result).toBeInstanceOf(ShareExpiredError)
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('refuses a keyspace grant, which is not a Share link, before any fetch', async () => {
+    const { result, fetchFn } = await openWith(await keyspaceGrant())
+    expect(result).toBeInstanceOf(NotAShareError)
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('refuses a Delivery with a flipped byte in its signature or its wrapped key as damaged', async () => {
+    const payload = await delivery()
+    const { chain, grant } = decodeDelivery(payload)
+    for (const part of [chain.links[0].signature, grant.ct, chain.owner]) {
+      const { result, fetchFn } = await openWith(flipped(payload, indexOf(payload, hexToBytes(part)) + 3))
+      expect(result).toBeInstanceOf(DamagedLinkError)
+      expect(fetchFn).not.toHaveBeenCalled()
+    }
+  })
+
+  it.each([
+    ['not CBOR', new Uint8Array([0x00, 1, 2, 3])],
+    ['a CBOR string', new Uint8Array([0x63, 0x61, 0x62, 0x63])],
+    ['a truncated grant', PAYLOAD.subarray(0, PAYLOAD.length - 1)],
+    ['a grant with its map length changed', flipped(PAYLOAD, 0)],
+    ['an empty map', new Uint8Array([0xa0])],
+    ['an empty array', new Uint8Array([0x80])],
+  ])('refuses a payload that is %s as damaged, before any fetch', async (_, payload) => {
+    const { result, fetchFn } = await openWith(payload)
+    expect(result).toBeInstanceOf(DamagedLinkError)
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+})
+
+describe('integrity', () => {
   it('rejects a flipped ciphertext byte in the metadata', async () => {
     const share = await makeShare(bigFolder)
     const info = await fee.parse(share)
     if (info.scheme !== 'chunked') throw new Error('expected a chunked envelope')
     share[info.params.headerLength + 5] ^= 1
-    await expect(open(share)).rejects.toBeInstanceOf(WrongPasswordError)
+    await expect(open(share)).rejects.toBeInstanceOf(ShareModifiedError)
   })
 
   it('rejects a flipped ciphertext byte in a file, when that file is read', async () => {
     const share = await makeShare(bigFolder)
     share[share.length - 20] ^= 1
     const { archive } = await open(share)
-    await expect(readAll(await archive.open('big/data.bin'))).rejects.toBeInstanceOf(WrongPasswordError)
+    await expect(readAll(await archive.open('big/data.bin'))).rejects.toBeInstanceOf(ShareModifiedError)
   })
 
   it.each([40, 70_000, 300_000])('maps a total cut by %i bytes to NotAvailableError', async (cut) => {
@@ -248,24 +353,20 @@ describe('password and integrity', () => {
 })
 
 describe('what is accepted', () => {
-  it('rejects absurd iterations before deriving', async () => {
-    const share = await makeShare(folder, { iterations: 10_000_001 })
-    const spy = vi.spyOn(crypto.subtle, 'deriveBits')
-    await expect(open(share)).rejects.toBeInstanceOf(NotAShareError)
-    expect(spy).not.toHaveBeenCalled()
-  }, 30_000) // makeShare really derives a key at 10M iterations
-
-  it('rejects foreign appMetadata', async () => {
+  it('rejects an envelope without keysmith labels', async () => {
     await expect(open(await makeShare(folder, { appMetadata: { app: 'other' } }))).rejects.toBeInstanceOf(
       NotAShareError
     )
   })
 
-  it('rejects a foreign content_type before deriving', async () => {
+  it('rejects a foreign content_type', async () => {
     const share = await makeShare(folder, { contentType: 'text/plain' })
-    const spy = vi.spyOn(crypto.subtle, 'deriveBits')
     await expect(open(share)).rejects.toBeInstanceOf(NotAShareError)
-    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('rejects labels that name another keysmith format version', async () => {
+    const share = await makeShare(folder, { appMetadata: { 'foc/v': 2, 'foc/ks': `0x${'22'.repeat(16)}` } })
+    await expect(open(share)).rejects.toBeInstanceOf(NotAShareError)
   })
 
   it('rejects non-envelope bytes', async () => {
@@ -313,16 +414,14 @@ describe('what is accepted', () => {
 })
 
 describe('when the server does not serve ranges', () => {
-  it('turns a 200 on the head request into RangeUnsupportedError, with the body intact and no key derived', async () => {
+  it('turns a 200 on the head request into RangeUnsupportedError, with the body intact', async () => {
     const share = await makeShare(folder)
-    const spy = vi.spyOn(crypto.subtle, 'deriveBits')
     const error = await open(share, 'full').catch((cause) => cause)
     expect(error).toBeInstanceOf(RangeUnsupportedError)
-    expect(spy).not.toHaveBeenCalled()
     expectSameBytes(new Uint8Array(await error.response.arrayBuffer()), share)
   })
 
-  it('turns a 200 during a file read into RangeUnsupportedError, not a wrong password', async () => {
+  it('turns a 200 during a file read into RangeUnsupportedError, not a modified share', async () => {
     const share = await makeShare(bigFolder)
     const { archive, stub } = await open(share)
     stub.mode = 'full'
@@ -346,7 +445,7 @@ describe('when the server does not serve ranges', () => {
     const cancel = vi.fn()
     const body = new ReadableStream<Uint8Array>({ cancel })
     const fetchFn = (async () => new Response(body, { status })) as typeof fetch
-    await expect(openProtectedArchive(CID_STRING, PASSWORD, fetchFn)).rejects.toThrow()
+    await expect(openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), fetchFn)).rejects.toThrow()
     expect(cancel).toHaveBeenCalled()
   })
 
@@ -354,7 +453,9 @@ describe('when the server does not serve ranges', () => {
     const fetchFn = (async () => {
       throw new TypeError('network')
     }) as typeof fetch
-    await expect(openProtectedArchive(CID_STRING, PASSWORD, fetchFn)).rejects.toBeInstanceOf(NotAvailableError)
+    await expect(openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), fetchFn)).rejects.toBeInstanceOf(
+      NotAvailableError
+    )
   })
 
   it('fails on other statuses', async () => {
@@ -370,7 +471,7 @@ describe('when the server does not serve ranges', () => {
       if (!shift) return response
       return new Response(response.body, { status: 206, headers: { 'content-range': `bytes 0-9/${share.length}` } })
     }) as typeof fetch
-    const archive = await openProtectedArchive(CID_STRING, PASSWORD, fetchFn)
+    const archive = await openProtectedArchive(CID_STRING, PAYLOAD, accessKey(), fetchFn)
     shift = true
     await expect(readAll(await archive.open('big/data.bin'))).rejects.toBeInstanceOf(NotAvailableError)
   })
@@ -397,6 +498,8 @@ describe('archive lifetime', () => {
   })
 
   it('rejects an invalid CID', async () => {
-    await expect(openProtectedArchive('nope', PASSWORD, serveRange(new Uint8Array(1)).fetch)).rejects.toThrow('Invalid')
+    await expect(
+      openProtectedArchive('nope', PAYLOAD, accessKey(), serveRange(new Uint8Array(1)).fetch)
+    ).rejects.toThrow('Invalid')
   })
 })

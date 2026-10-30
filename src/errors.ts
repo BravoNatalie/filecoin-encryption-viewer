@@ -8,8 +8,25 @@ export class TooLargeError extends Error {
 export class TooManyEntriesError extends Error {
   override name = 'TooManyEntriesError'
 }
-export class WrongPasswordError extends Error {
-  override name = 'WrongPasswordError'
+/** The Access key doesn't open the link's payload: not the key it was wrapped to, or not a valid key at all. */
+export class WrongAccessKeyError extends Error {
+  override name = 'WrongAccessKeyError'
+}
+/** The payload opened, but it's for another upload than the envelope at this CID. */
+export class OtherUploadError extends Error {
+  override name = 'OtherUploadError'
+}
+/** The Delivery's claim chain has expired. */
+export class ShareExpiredError extends Error {
+  override name = 'ShareExpiredError'
+}
+/** The link's payload isn't a valid grant or Delivery, or its signatures don't check out. */
+export class DamagedLinkError extends Error {
+  override name = 'DamagedLinkError'
+}
+/** FEE refused a chunk: the ciphertext (or its authenticated labels) was modified. */
+export class ShareModifiedError extends Error {
+  override name = 'ShareModifiedError'
 }
 export class NotAShareError extends Error {
   override name = 'NotAShareError'
